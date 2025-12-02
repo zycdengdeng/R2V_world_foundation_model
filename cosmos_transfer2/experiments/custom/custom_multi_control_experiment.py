@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Custom Experiment Configuration for Multi-Control Post Training
-# Trains a model with 3 control types: vis (blur), depth, bbox (hdmap)
+# Trains a model with 3 control types: vis (blur), depth, seg (hdmap)
 #
 # Option D: Use Transfer2.5 multiview checkpoint but train all 3 heads from scratch
-# By using "bbox" instead of "hdmap", the pre-trained hdmap_bbox weights are ignored
+# By using "seg" instead of "hdmap", the pre-trained hdmap_bbox weights are ignored
 
 import os
 
@@ -29,8 +29,8 @@ from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
 )
 
 # Get the Transfer2.5 multiview checkpoint (optimized for control tasks)
-# Using "bbox" instead of "hdmap" so pre-trained hdmap_bbox weights are NOT used
-# All 3 control heads (vis, depth, bbox) will be randomly initialized
+# Using "seg" instead of "hdmap" so pre-trained hdmap_bbox weights are NOT used
+# All 3 control heads (vis, depth, seg) will be randomly initialized
 TRANSFER2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a")
 
 
@@ -101,7 +101,7 @@ def register_custom_dataloader() -> None:
 
 # Main experiment configuration
 # Option D: Use Transfer2.5 multiview (optimized for control) but train all 3 heads from scratch
-# Using "bbox" instead of "hdmap" so all heads (vis, depth, bbox) are randomly initialized
+# Using "seg" instead of "hdmap" so all heads (vis, depth, seg) are randomly initialized
 custom_multi_control_post_train = dict(
     # Use Transfer2 multiview config (includes ControlNet architecture)
     # Override with custom dataloader
@@ -141,8 +141,8 @@ custom_multi_control_post_train = dict(
     ),
     model=dict(
         config=dict(
-            # CRITICAL: 3 control heads - vis (blur), depth, bbox (hdmap data)
-            hint_keys="vis_depth_bbox",
+            # CRITICAL: 3 control heads - vis (blur), depth, seg (hdmap data)
+            hint_keys="vis_depth_seg",
             # Training configuration
             min_num_conditional_frames_per_view=0,  # t2w mode
             max_num_conditional_frames_per_view=2,  # i2w or v2v
@@ -209,7 +209,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -220,7 +220,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -280,7 +280,7 @@ custom_multi_control_post_train_small = dict(
     ),
     model=dict(
         config=dict(
-            hint_keys="vis_depth_bbox",
+            hint_keys="vis_depth_seg",
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=2,
             condition_locations=["first_random_n"],
@@ -339,7 +339,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -350,7 +350,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
