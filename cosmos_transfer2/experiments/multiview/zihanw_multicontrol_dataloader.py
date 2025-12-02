@@ -48,6 +48,34 @@ CAMERAS_4VIEW: tuple[str, ...] = (
     "camera_cross_left_120fov",   # Left
 )
 
+# 2-camera subset for training with 2 GPUs (front-rear coverage)
+# This allows context_parallel_size=2 with n_views=2
+# Required because state_t=6 (21 frames) and 6 % cp_size must equal 0
+# Valid cp_size values for state_t=6: 1, 2, 3, 6
+CAMERAS_2VIEW: tuple[str, ...] = (
+    "camera_front_wide_120fov",   # Front
+    "camera_rear_tele_30fov",     # Rear
+)
+
+# 3-camera subset for training with 3 GPUs (front-left-right coverage)
+# This allows context_parallel_size=3 with n_views=3
+CAMERAS_3VIEW: tuple[str, ...] = (
+    "camera_front_wide_120fov",   # Front
+    "camera_cross_right_120fov",  # Right
+    "camera_cross_left_120fov",   # Left
+)
+
+# 6-camera subset for training with 6 GPUs
+# This allows context_parallel_size=6 with n_views=6
+CAMERAS_6VIEW: tuple[str, ...] = (
+    "camera_front_wide_120fov",   # Front
+    "camera_cross_right_120fov",  # Right
+    "camera_rear_right_120fov",   # Rear Right
+    "camera_rear_tele_30fov",     # Rear
+    "camera_rear_left_120fov",    # Rear Left
+    "camera_cross_left_120fov",   # Left
+)
+
 # View mapping for 4-camera setup (indices 0-3)
 CAMERA_VIEW_MAPPING_4VIEW: dict[str, int] = {
     camera: idx for idx, camera in enumerate(CAMERAS_4VIEW)
@@ -302,8 +330,9 @@ def register_zihanw_multicontrol_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=21,
         single_caption_camera_name="camera_front_wide_120fov",
-        # Use 4 cameras for 4 GPU training (360° coverage)
-        selected_cameras=CAMERAS_4VIEW,
+        # Use 2 cameras for 2 GPU training (front-rear coverage)
+        # state_t=6 requires cp_size to be a factor of 6 (1, 2, 3, or 6)
+        selected_cameras=CAMERAS_2VIEW,
     )
 
     cs.store(

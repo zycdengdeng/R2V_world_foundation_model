@@ -65,8 +65,9 @@ zihanw_multicontrol_post_train = dict(
             # Adjust for 21 frames: pixel_frames = (state_t - 1) * 4 + 1
             # 21 = (6 - 1) * 4 + 1, so state_t = 6
             state_t=6,  # latent temporal dimension for 21 frames
-            # Override view sampling for 4-view training
-            train_sample_views_range=(4, 4),  # Always sample exactly 4 views
+            # Override view sampling for 2-view training
+            # Must match n_views which equals context_parallel_size
+            train_sample_views_range=(2, 2),  # Always sample exactly 2 views
         ),
     ),
     trainer=dict(
@@ -108,8 +109,10 @@ zihanw_multicontrol_post_train = dict(
         ),
     ),
     model_parallel=dict(
-        # For 4-view training with 4 GPUs
-        context_parallel_size=4,
+        # For 2-view training with 2 GPUs
+        # state_t=6 requires cp_size to be a factor of 6 (1, 2, 3, or 6)
+        # Using cp_size=2 for 21-frame videos (state_t=6)
+        context_parallel_size=2,
     ),
 )
 
