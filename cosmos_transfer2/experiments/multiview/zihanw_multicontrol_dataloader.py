@@ -110,6 +110,7 @@ class MultiControlMultiviewDataset(Dataset):
         num_video_frames: int = 21,
         single_caption_camera_name: str = "camera_front_wide_120fov",
         selected_cameras: tuple[str, ...] | None = None,  # Subset of cameras to use
+        exclude_clips: tuple[str, ...] = (),  # Clip prefixes to exclude (e.g., ("075", "077"))
     ) -> None:
         self.base_video_dir = base_video_dir
         self.control_dirs = control_dirs
@@ -119,6 +120,7 @@ class MultiControlMultiviewDataset(Dataset):
         self.resolution_hw = resolution_hw
         self.num_video_frames = num_video_frames
         self.single_caption_camera_name = single_caption_camera_name
+        self.exclude_clips = exclude_clips
 
         # Use selected cameras or default to all 7
         self.selected_cameras = selected_cameras if selected_cameras else DEFAULT_CAMERAS
@@ -153,6 +155,16 @@ class MultiControlMultiviewDataset(Dataset):
         # Build file lists
         captions_files = list(caption_path.glob("**/*.json"))
         unique_names = sorted(set(f.stem for f in captions_files))
+
+        # Filter out excluded clips
+        if self.exclude_clips:
+            original_count = len(unique_names)
+            unique_names = [
+                name for name in unique_names
+                if not any(name.startswith(prefix) for prefix in self.exclude_clips)
+            ]
+            excluded_count = original_count - len(unique_names)
+            print(f"Excluded {excluded_count} clips matching prefixes: {self.exclude_clips}")
 
         # Filter folder_to_camera_key to only include selected cameras
         self.filtered_folder_to_camera = {
@@ -361,6 +373,8 @@ def register_zihanw_multicontrol_dataloader() -> None:
         # Constraints: state_t=8 (factors: 1,2,4,8) AND num_heads=16 (factors: 1,2,4,8,16)
         # Valid cp_size values: intersection = {1, 2, 4, 8}
         selected_cameras=CAMERAS_2VIEW,
+        # Exclude clips for inference/evaluation
+        exclude_clips=("075", "077"),
     )
 
     cs.store(

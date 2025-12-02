@@ -45,7 +45,7 @@ zihanw_multicontrol_post_train = dict(
         name="zihanw_multicontrol_post_train"
     ),
     checkpoint=dict(
-        save_iter=500,
+        save_iter=200,  # Save every 200 iterations
         load_path=get_checkpoint_path(DEFAULT_CHECKPOINT.s3.uri),
         load_training_state=False,
         strict_resume=False,
@@ -85,12 +85,12 @@ zihanw_multicontrol_post_train = dict(
                 save_s3=False,
             ),
             every_n_sample_reg=dict(
-                every_n=500,
+                every_n=200,  # Generate samples every 200 iterations
                 save_s3=False,
                 ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
             ),
             every_n_sample_ema=dict(
-                every_n=500,
+                every_n=200,  # Generate samples every 200 iterations
                 save_s3=False,
                 ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
             ),
