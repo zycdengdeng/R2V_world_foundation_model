@@ -62,9 +62,9 @@ zihanw_multicontrol_post_train = dict(
             # hint_keys format: control names joined by "_"
             hint_keys="blur_depth_hdmap",
             base_load_from=None,
-            # Adjust for 21 frames: pixel_frames = (state_t - 1) * 4 + 1
-            # 21 = (6 - 1) * 4 + 1, so state_t = 6
-            state_t=6,  # latent temporal dimension for 21 frames
+            # Adjust for 29 frames: pixel_frames = (state_t - 1) * 4 + 1
+            # 29 = (8 - 1) * 4 + 1, so state_t = 8
+            state_t=8,  # latent temporal dimension for 29 frames
             # Override view sampling for 2-view training
             # Must match n_views which equals context_parallel_size
             train_sample_views_range=(2, 2),  # Always sample exactly 2 views
@@ -110,8 +110,9 @@ zihanw_multicontrol_post_train = dict(
     ),
     model_parallel=dict(
         # For 2-view training with 2 GPUs
-        # Constraints: state_t=6 AND num_heads=16
-        # Valid cp_size: intersection of factors(6) and factors(16) = {1, 2}
+        # Constraints: state_t=8 AND num_heads=16
+        # Valid cp_size: intersection of factors(8) and factors(16) = {1, 2, 4, 8}
+        # With 29 frames, can scale to 4 or 8 GPUs later
         context_parallel_size=2,
     ),
 )

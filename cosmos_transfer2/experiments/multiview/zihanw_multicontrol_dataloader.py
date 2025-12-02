@@ -355,11 +355,11 @@ def register_zihanw_multicontrol_dataloader() -> None:
         },
         folder_to_camera_key={f"ftheta_{camera_name}": camera_name for camera_name in DEFAULT_CAMERAS},
         resolution_hw=(720, 1280),
-        num_video_frames=21,
+        num_video_frames=29,  # 29 frames -> state_t=8
         single_caption_camera_name="camera_front_wide_120fov",
         # Use 2 cameras for 2 GPU training (front-rear coverage)
-        # Constraints: state_t=6 (factors: 1,2,3,6) AND num_heads=16 (factors: 1,2,4,8,16)
-        # Valid cp_size values: intersection = {1, 2}
+        # Constraints: state_t=8 (factors: 1,2,4,8) AND num_heads=16 (factors: 1,2,4,8,16)
+        # Valid cp_size values: intersection = {1, 2, 4, 8}
         selected_cameras=CAMERAS_2VIEW,
     )
 

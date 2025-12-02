@@ -5,6 +5,9 @@
 # Multi-control training script with HF mirror support
 # This script ensures the HF_ENDPOINT is set before Python imports huggingface_hub
 
+# Set output directory (default: /tmp/imaginaire4-output)
+export IMAGINAIRE_OUTPUT_ROOT="${IMAGINAIRE_OUTPUT_ROOT:-/mnt/zihanw/cosmos-transfer-output}"
+
 # Set HuggingFace mirror for faster downloads in China
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_HUB_URL="${HF_ENDPOINT}"
