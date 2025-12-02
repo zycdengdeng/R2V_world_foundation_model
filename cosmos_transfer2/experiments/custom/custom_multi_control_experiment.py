@@ -116,6 +116,7 @@ custom_multi_control_post_train = dict(
         {"override /ckpt_type": "dcp"},
         {"override /optimizer": "fusedadamw"},
         {"override /tokenizer": "wan2pt1_tokenizer"},
+        {"override /callbacks": "wandb"},  # Enable WandB logging
         "_self_",
     ],
     job=dict(
@@ -257,6 +258,7 @@ custom_multi_control_post_train_small = dict(
         {"override /ckpt_type": "dcp"},
         {"override /optimizer": "fusedadamw"},
         {"override /tokenizer": "wan2pt1_tokenizer"},
+        {"override /callbacks": "wandb"},  # Enable WandB logging
         "_self_",
     ],
     job=dict(
