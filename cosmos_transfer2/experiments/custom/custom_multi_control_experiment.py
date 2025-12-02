@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Custom Experiment Configuration for Multi-Control Post Training
-# Trains a model with 3 control types: vis (blur), depth, seg (hdmap)
+# Trains a model with 3 control types: blur, depth, hdmap
 #
-# Option D: Use Transfer2.5 multiview checkpoint but train all 3 heads from scratch
-# - Uses "seg" instead of "hdmap" so model creates new control head names
-# - Uses ReinitControlWeightsCallback to reinitialize control_embedder and input_hint_block
-#   after checkpoint loading, ensuring ALL control heads start from random initialization
+# Strategy: Use Transfer2.5 multiview checkpoint
+# - blur: train from scratch (not in Transfer2.5)
+# - depth: train from scratch (not in Transfer2.5)
+# - hdmap: uses pre-trained hdmap_bbox weights from Transfer2.5
 
 import os
 
@@ -29,11 +29,9 @@ from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
     MultiControlMultiviewDataset,
     collate_fn,
 )
-from cosmos_transfer2.experiments.custom.reinit_control_callback import ReinitControlWeightsCallback
 
 # Get the Transfer2.5 multiview checkpoint (optimized for control tasks)
-# Using "seg" instead of "hdmap" so pre-trained hdmap_bbox weights are NOT used
-# All 3 control heads (vis, depth, seg) will be randomly initialized
+# This checkpoint has pre-trained hdmap_bbox control head
 TRANSFER2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a")
 
 
@@ -103,8 +101,10 @@ def register_custom_dataloader() -> None:
 # ============================================================================
 
 # Main experiment configuration
-# Option D: Use Transfer2.5 multiview (optimized for control) but train all 3 heads from scratch
-# Using "seg" instead of "hdmap" so all heads (vis, depth, seg) are randomly initialized
+# hint_keys="blur_depth_hdmap" will be parsed to:
+#   blur -> control_input_blur (from scratch)
+#   depth -> control_input_depth (from scratch)
+#   hdmap -> control_input_hdmap_bbox (uses pre-trained weights)
 custom_multi_control_post_train = dict(
     # Use Transfer2 multiview config (includes ControlNet architecture)
     # Override with custom dataloader
@@ -127,7 +127,7 @@ custom_multi_control_post_train = dict(
         save_iter=500,  # Save every 500 iterations
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,  # Load from Transfer2.5 multiview
         load_training_state=False,  # Don't load optimizer state
-        strict_resume=False,  # Allow missing keys (ControlNet heads will be random initialized)
+        strict_resume=False,  # Allow missing keys (blur/depth heads will be random initialized)
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
     ),
@@ -144,8 +144,8 @@ custom_multi_control_post_train = dict(
     ),
     model=dict(
         config=dict(
-            # CRITICAL: 3 control heads - vis (blur), depth, seg (hdmap data)
-            hint_keys="vis_depth_seg",
+            # 3 control heads: blur (from scratch), depth (from scratch), hdmap (pre-trained)
+            hint_keys="blur_depth_hdmap",
             # Training configuration
             min_num_conditional_frames_per_view=0,  # t2w mode
             max_num_conditional_frames_per_view=2,  # i2w or v2v
@@ -198,14 +198,8 @@ custom_multi_control_post_train = dict(
     ),
     trainer=dict(
         logging_iter=50,
-        max_iter=20_000,  # More iterations since training from scratch
+        max_iter=20_000,
         callbacks=dict(
-            # CRITICAL: Reinitialize control weights after loading checkpoint
-            # This ensures ALL 3 control heads (vis, depth, seg) start from scratch
-            reinit_control=L(ReinitControlWeightsCallback)(
-                reinit_control_embedder=True,
-                reinit_input_hint_block=True,
-            ),
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
             device_monitor=dict(save_s3=False),
@@ -218,7 +212,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
+                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -229,7 +223,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
+                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -289,7 +283,7 @@ custom_multi_control_post_train_small = dict(
     ),
     model=dict(
         config=dict(
-            hint_keys="vis_depth_seg",
+            hint_keys="blur_depth_hdmap",
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=2,
             condition_locations=["first_random_n"],
@@ -337,11 +331,6 @@ custom_multi_control_post_train_small = dict(
         logging_iter=10,
         max_iter=500,
         callbacks=dict(
-            # CRITICAL: Reinitialize control weights after loading checkpoint
-            reinit_control=L(ReinitControlWeightsCallback)(
-                reinit_control_embedder=True,
-                reinit_input_hint_block=True,
-            ),
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=50, every_n=50, save_s3=False),
             device_monitor=dict(save_s3=False),
@@ -353,7 +342,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
+                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -364,7 +353,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_seg"],
+                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),

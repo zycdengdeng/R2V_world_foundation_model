@@ -266,11 +266,13 @@ class MultiControlMultiviewDataset(Dataset):
             ),
             "original_hw": torch.tensor(original_sizes, dtype=torch.int64),
             # Three control inputs
-            # NOTE: We use "control_input_vis" for blur data, "control_input_seg" for hdmap data
-            # The model's hint_keys should be set to "vis_depth_seg"
-            "control_input_vis": rearrange(torch.cat(multiview_control_blur, dim=0), "t c h w -> c t h w"),
+            # hint_keys="blur_depth_hdmap" will be parsed to:
+            #   blur -> control_input_blur (from scratch)
+            #   depth -> control_input_depth (from scratch)
+            #   hdmap -> control_input_hdmap_bbox (uses pre-trained weights from Transfer2.5)
+            "control_input_blur": rearrange(torch.cat(multiview_control_blur, dim=0), "t c h w -> c t h w"),
             "control_input_depth": rearrange(torch.cat(multiview_control_depth, dim=0), "t c h w -> c t h w"),
-            "control_input_seg": rearrange(torch.cat(multiview_control_hdmap, dim=0), "t c h w -> c t h w"),
+            "control_input_hdmap_bbox": rearrange(torch.cat(multiview_control_hdmap, dim=0), "t c h w -> c t h w"),
         }
 
         return sample
