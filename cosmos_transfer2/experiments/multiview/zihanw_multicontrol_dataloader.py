@@ -39,6 +39,20 @@ from cosmos_transfer2._src.predict2_multiview.datasets.multiview import (
     collate_fn,
 )
 
+# 4-camera subset for training with 4 GPUs (360° coverage)
+# This allows context_parallel_size=4 with n_views=4
+CAMERAS_4VIEW: tuple[str, ...] = (
+    "camera_front_wide_120fov",   # Front
+    "camera_cross_right_120fov",  # Right
+    "camera_rear_tele_30fov",     # Rear
+    "camera_cross_left_120fov",   # Left
+)
+
+# View mapping for 4-camera setup (indices 0-3)
+CAMERA_VIEW_MAPPING_4VIEW: dict[str, int] = {
+    camera: idx for idx, camera in enumerate(CAMERAS_4VIEW)
+}
+
 
 class MultiControlMultiviewDataset(Dataset):
     """
@@ -66,6 +80,7 @@ class MultiControlMultiviewDataset(Dataset):
         resolution_hw: tuple[int, int] = (720, 1280),
         num_video_frames: int = 21,
         single_caption_camera_name: str = "camera_front_wide_120fov",
+        selected_cameras: tuple[str, ...] | None = None,  # Subset of cameras to use
     ) -> None:
         self.base_video_dir = base_video_dir
         self.control_dirs = control_dirs
@@ -75,6 +90,15 @@ class MultiControlMultiviewDataset(Dataset):
         self.resolution_hw = resolution_hw
         self.num_video_frames = num_video_frames
         self.single_caption_camera_name = single_caption_camera_name
+
+        # Use selected cameras or default to all 7
+        self.selected_cameras = selected_cameras if selected_cameras else DEFAULT_CAMERAS
+        self.n_views = len(self.selected_cameras)
+
+        # Build view mapping for selected cameras (0-indexed)
+        self.camera_view_mapping = {
+            camera: idx for idx, camera in enumerate(self.selected_cameras)
+        }
 
         base_path = Path(base_video_dir)
         if not base_path.exists():
@@ -101,6 +125,12 @@ class MultiControlMultiviewDataset(Dataset):
         captions_files = list(caption_path.glob("**/*.json"))
         unique_names = sorted(set(f.stem for f in captions_files))
 
+        # Filter folder_to_camera_key to only include selected cameras
+        self.filtered_folder_to_camera = {
+            folder: camera for folder, camera in self.folder_to_camera_key.items()
+            if camera in self.selected_cameras
+        }
+
         self.samples = []
         for name in unique_names:
             sample = {
@@ -111,7 +141,7 @@ class MultiControlMultiviewDataset(Dataset):
             }
 
             valid_sample = True
-            for folder, camera_key in self.folder_to_camera_key.items():
+            for folder, camera_key in self.filtered_folder_to_camera.items():
                 # Caption
                 caption_file = caption_path / folder / f"{name}.json"
                 if caption_file.exists():
@@ -137,13 +167,15 @@ class MultiControlMultiviewDataset(Dataset):
                 if not valid_sample:
                     break
 
-            if valid_sample and len(sample["videos"]) == len(self.folder_to_camera_key):
+            if valid_sample and len(sample["videos"]) == len(self.filtered_folder_to_camera):
                 self.samples.append(sample)
 
         print(f"=" * 60)
         print(f"MultiControlMultiviewDataset initialized:")
         print(f"  Base directory: {base_video_dir}")
         print(f"  Loaded {len(self.samples)} samples")
+        print(f"  Number of views: {self.n_views}")
+        print(f"  Selected cameras: {list(self.selected_cameras)}")
         print(f"  Control inputs:")
         for ctrl_name, ctrl_path in self.control_paths.items():
             print(f"    - {ctrl_name}: {ctrl_path}")
@@ -171,11 +203,12 @@ class MultiControlMultiviewDataset(Dataset):
         # Determine frame indices (start from 0, sample num_video_frames)
         frame_indices = list(range(self.num_video_frames))
 
-        # Load videos for all views
+        # Load videos for all selected views
         multiview_frames = []
         view_indices = []
 
-        camera_keys = list(DEFAULT_CAMERAS)
+        # Use selected cameras (e.g., 4 cameras for 4 GPUs)
+        camera_keys = list(self.selected_cameras)
         for camera_key in camera_keys:
             video_file = sample["videos"].get(camera_key)
             if video_file is None:
@@ -183,12 +216,13 @@ class MultiControlMultiviewDataset(Dataset):
 
             frames = self._read_video_frames(video_file, frame_indices)
             multiview_frames.append(frames)
-            view_indices.extend([DEFAULT_CAMERA_VIEW_MAPPING[camera_key]] * self.num_video_frames)
+            # Use local view mapping (0-indexed for selected cameras)
+            view_indices.extend([self.camera_view_mapping[camera_key]] * self.num_video_frames)
 
         # Stack all views
         video_tensor = rearrange(torch.cat(multiview_frames, dim=0), "t c h w -> c t h w")
 
-        # Load control inputs for all views
+        # Load control inputs for all selected views
         control_tensors = {}
         for control_name in self.control_input_names:
             multiview_control = []
@@ -214,6 +248,11 @@ class MultiControlMultiviewDataset(Dataset):
                 prefix = DEFAULT_CAPTION_PREFIXES.get(camera_key, "")
                 captions.append(f"{prefix} {caption}")
 
+        # Find front camera position in selected cameras
+        front_cam_position = 0  # Default to first camera
+        if self.single_caption_camera_name in camera_keys:
+            front_cam_position = camera_keys.index(self.single_caption_camera_name)
+
         # Build output dict
         output = {
             "__key__": str(index),
@@ -226,16 +265,14 @@ class MultiControlMultiviewDataset(Dataset):
             "frame_indices": torch.tensor(frame_indices, dtype=torch.int64),
             "num_video_frames_per_view": torch.tensor(self.num_video_frames, dtype=torch.int64),
             "view_indices_selection": torch.tensor(
-                [DEFAULT_CAMERA_VIEW_MAPPING[k] for k in camera_keys if k in sample["videos"]],
+                [self.camera_view_mapping[k] for k in camera_keys if k in sample["videos"]],
                 dtype=torch.int64
             ),
             "camera_keys_selection": [k for k in camera_keys if k in sample["videos"]],
             "sample_n_views": torch.tensor(len([k for k in camera_keys if k in sample["videos"]]), dtype=torch.int64),
             "padding_mask": torch.zeros((1, *self.resolution_hw), dtype=torch.float32),
             "ref_cam_view_idx_sample_position": torch.tensor(-1, dtype=torch.int64),
-            "front_cam_view_idx_sample_position": torch.tensor(
-                camera_keys.index(self.single_caption_camera_name), dtype=torch.int64
-            ),
+            "front_cam_view_idx_sample_position": torch.tensor(front_cam_position, dtype=torch.int64),
             "original_hw": torch.tensor(
                 [[720, 1280] for _ in camera_keys if _ in sample["videos"]], dtype=torch.int64
             ),
@@ -253,6 +290,7 @@ def register_zihanw_multicontrol_dataloader() -> None:
     cs = ConfigStore.instance()
 
     # Dataset configuration - loading from separate directories
+    # Using 4 cameras for 4 GPU training (n_views <= context_parallel_size)
     dataset = L(MultiControlMultiviewDataset)(
         base_video_dir="/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection",
         control_dirs={
@@ -264,6 +302,8 @@ def register_zihanw_multicontrol_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=21,
         single_caption_camera_name="camera_front_wide_120fov",
+        # Use 4 cameras for 4 GPU training (360° coverage: front, right, rear, left)
+        selected_cameras=CAMERAS_4VIEW,
     )
 
     cs.store(
