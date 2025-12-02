@@ -5,7 +5,9 @@
 # Trains a model with 3 control types: vis (blur), depth, seg (hdmap)
 #
 # Option D: Use Transfer2.5 multiview checkpoint but train all 3 heads from scratch
-# By using "seg" instead of "hdmap", the pre-trained hdmap_bbox weights are ignored
+# - Uses "seg" instead of "hdmap" so model creates new control head names
+# - Uses ReinitControlWeightsCallback to reinitialize control_embedder and input_hint_block
+#   after checkpoint loading, ensuring ALL control heads start from random initialization
 
 import os
 
@@ -27,6 +29,7 @@ from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
     MultiControlMultiviewDataset,
     collate_fn,
 )
+from cosmos_transfer2.experiments.custom.reinit_control_callback import ReinitControlWeightsCallback
 
 # Get the Transfer2.5 multiview checkpoint (optimized for control tasks)
 # Using "seg" instead of "hdmap" so pre-trained hdmap_bbox weights are NOT used
@@ -197,6 +200,12 @@ custom_multi_control_post_train = dict(
         logging_iter=50,
         max_iter=20_000,  # More iterations since training from scratch
         callbacks=dict(
+            # CRITICAL: Reinitialize control weights after loading checkpoint
+            # This ensures ALL 3 control heads (vis, depth, seg) start from scratch
+            reinit_control=L(ReinitControlWeightsCallback)(
+                reinit_control_embedder=True,
+                reinit_input_hint_block=True,
+            ),
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
             device_monitor=dict(save_s3=False),
@@ -328,6 +337,11 @@ custom_multi_control_post_train_small = dict(
         logging_iter=10,
         max_iter=500,
         callbacks=dict(
+            # CRITICAL: Reinitialize control weights after loading checkpoint
+            reinit_control=L(ReinitControlWeightsCallback)(
+                reinit_control_embedder=True,
+                reinit_input_hint_block=True,
+            ),
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=50, every_n=50, save_s3=False),
             device_monitor=dict(save_s3=False),
