@@ -62,8 +62,9 @@ zihanw_multicontrol_post_train = dict(
             # hint_keys format: control names joined by "_"
             hint_keys="blur_depth_hdmap",
             base_load_from=None,
-            # Adjust for 21 frames (your data) vs default 29
-            state_t=8,  # latent temporal dimension
+            # Adjust for 21 frames: pixel_frames = (state_t - 1) * 4 + 1
+            # 21 = (6 - 1) * 4 + 1, so state_t = 6
+            state_t=6,  # latent temporal dimension for 21 frames
         ),
     ),
     trainer=dict(
