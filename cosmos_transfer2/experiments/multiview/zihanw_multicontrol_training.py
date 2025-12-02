@@ -46,8 +46,9 @@ zihanw_multicontrol_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        load_path=get_checkpoint_path(DEFAULT_CHECKPOINT.s3.uri),
-        load_training_state=False,
+        # Resume from iteration 400 checkpoint
+        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_multicontrol/zihanw_multicontrol_post_train/checkpoints/iter_000000400",
+        load_training_state=True,  # Resume optimizer and iteration counter
         strict_resume=False,
         load_from_object_store=dict(
             enabled=False,  # Loading from local filesystem
