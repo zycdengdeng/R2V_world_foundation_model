@@ -20,7 +20,7 @@ from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_
 
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_generic_dataloader, get_sampler
 from cosmos_transfer2._src.predict2.text_encoders.text_encoder import EmbeddingConcatStrategy
-from cosmos_transfer2._src.predict2_multiview.datasets.multiview import DEFAULT_CAMERAS
+# Note: We define TRAINING_CAMERAS locally instead of using DEFAULT_CAMERAS
 from cosmos_transfer2._src.predict2_multiview.callbacks.every_n_draw_sample_multiviewvideo import (
     EveryNDrawSampleMultiviewVideo,
 )
@@ -56,6 +56,14 @@ TRAIN_SCENE_IDS = ["017", "019", "020", "022", "045", "049", "051", "055", "057"
 # Number of GPUs (for context parallel)
 WORLD_SIZE = int(os.environ.get("WORLD_SIZE", 8))
 
+# Fixed training cameras (4 views to match 4 GPUs)
+TRAINING_CAMERAS = (
+    "camera_front_wide_120fov",
+    "camera_cross_left_120fov",
+    "camera_cross_right_120fov",
+    "camera_rear_right_70fov",
+)
+
 
 # ============================================================================
 # Dataset Configuration
@@ -73,7 +81,7 @@ def register_custom_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=29,
         fps_downsample_factor=1,
-        camera_keys=DEFAULT_CAMERAS if not SMOKE else DEFAULT_CAMERAS[:1],
+        camera_keys=TRAINING_CAMERAS if not SMOKE else TRAINING_CAMERAS[:1],
         single_caption_camera_name="camera_front_wide_120fov",
         add_view_prefix_to_caption=True,
         exclude_scene_ids=TEST_SCENE_IDS,
