@@ -59,10 +59,11 @@ CAMERAS_2VIEW: tuple[str, ...] = (
 
 # 3-camera subset for training with 3 GPUs (front-left-right coverage)
 # This allows context_parallel_size=3 with n_views=3
+# Provides good front hemisphere coverage
 CAMERAS_3VIEW: tuple[str, ...] = (
-    "camera_front_wide_120fov",   # Front
-    "camera_cross_right_120fov",  # Right
-    "camera_cross_left_120fov",   # Left
+    "camera_front_wide_120fov",   # Front Wide
+    "camera_cross_left_120fov",   # Front Left
+    "camera_cross_right_120fov",  # Front Right
 )
 
 # 6-camera subset for training with 6 GPUs
@@ -330,9 +331,9 @@ def register_zihanw_multicontrol_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=21,
         single_caption_camera_name="camera_front_wide_120fov",
-        # Use 2 cameras for 2 GPU training (front-rear coverage)
+        # Use 3 cameras for 3 GPU training (front-left-right coverage)
         # state_t=6 requires cp_size to be a factor of 6 (1, 2, 3, or 6)
-        selected_cameras=CAMERAS_2VIEW,
+        selected_cameras=CAMERAS_3VIEW,
     )
 
     cs.store(
