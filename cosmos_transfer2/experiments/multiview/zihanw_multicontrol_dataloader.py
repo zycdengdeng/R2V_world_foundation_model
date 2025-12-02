@@ -160,6 +160,7 @@ class MultiControlMultiviewDataset(Dataset):
             if camera in self.selected_cameras
         }
 
+        skipped_short_videos = 0
         self.samples = []
         for name in unique_names:
             sample = {
@@ -183,12 +184,36 @@ class MultiControlMultiviewDataset(Dataset):
                 if not video_file.exists():
                     valid_sample = False
                     break
+                # Check if video has enough frames
+                try:
+                    from decord import VideoReader
+                    with open(video_file, "rb") as f:
+                        video_reader = VideoReader(io.BytesIO(f.read()))
+                    if len(video_reader) < self.num_video_frames:
+                        valid_sample = False
+                        skipped_short_videos += 1
+                        break
+                except Exception:
+                    valid_sample = False
+                    break
                 sample["videos"][camera_key] = video_file
 
                 # Control inputs from separate directories
                 for control_name in self.control_input_names:
                     control_file = self.control_paths[control_name] / folder / f"{name}.mp4"
                     if not control_file.exists():
+                        valid_sample = False
+                        break
+                    # Check if control video has enough frames
+                    try:
+                        from decord import VideoReader
+                        with open(control_file, "rb") as f:
+                            ctrl_reader = VideoReader(io.BytesIO(f.read()))
+                        if len(ctrl_reader) < self.num_video_frames:
+                            valid_sample = False
+                            skipped_short_videos += 1
+                            break
+                    except Exception:
                         valid_sample = False
                         break
                     sample["controls"][control_name][camera_key] = control_file
@@ -203,6 +228,7 @@ class MultiControlMultiviewDataset(Dataset):
         print(f"MultiControlMultiviewDataset initialized:")
         print(f"  Base directory: {base_video_dir}")
         print(f"  Loaded {len(self.samples)} samples")
+        print(f"  Skipped {skipped_short_videos} samples with insufficient frames (need {self.num_video_frames})")
         print(f"  Number of views: {self.n_views}")
         print(f"  Selected cameras: {list(self.selected_cameras)}")
         print(f"  Control inputs:")
