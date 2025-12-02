@@ -1,0 +1,11 @@
+
+2GPU 2VIEWS训练口令
+
+cd /mnt/zihanw/R2V_world_foundation_model_zz && \
+source .venv/bin/activate && \
+export HF_ENDPOINT=https://hf-mirror.com && \
+export HF_HUB_ENABLE_HF_TRANSFER=0 && \
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/run_multicontrol_training.sh
+
+
+git pull origin claude/zihanw-019icN2Z1ciYjrNY6DXwyFmR
