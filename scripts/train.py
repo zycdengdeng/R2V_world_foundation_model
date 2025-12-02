@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Configure HuggingFace mirror BEFORE any other imports
+# This ensures HF_ENDPOINT is respected for checkpoint downloads
+import cosmos_transfer2._src.imaginaire.utils.hf_mirror  # noqa: F401, E402
+
 if __name__ == "__main__":
     from cosmos_oss.scripts.train import main
 
