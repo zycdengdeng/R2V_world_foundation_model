@@ -302,8 +302,9 @@ def register_zihanw_multicontrol_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=21,
         single_caption_camera_name="camera_front_wide_120fov",
-        # Use 4 cameras for 4 GPU training (360° coverage: front, right, rear, left)
-        selected_cameras=CAMERAS_4VIEW,
+        # Use all 7 cameras for 7+ GPU training
+        # For 4 GPU training, use selected_cameras=CAMERAS_4VIEW instead
+        selected_cameras=DEFAULT_CAMERAS,
     )
 
     cs.store(

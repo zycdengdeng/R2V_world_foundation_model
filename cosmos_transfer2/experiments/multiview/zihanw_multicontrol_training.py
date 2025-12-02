@@ -106,8 +106,9 @@ zihanw_multicontrol_post_train = dict(
         ),
     ),
     model_parallel=dict(
-        # Automatically set based on number of GPUs
-        context_parallel_size=int(os.environ.get("WORLD_SIZE", "1")),
+        # For 7-view training, need at least 7 GPUs
+        # Set context_parallel_size >= n_views
+        context_parallel_size=8,  # Use 8 for 7 views (must be >= n_views)
     ),
 )
 
