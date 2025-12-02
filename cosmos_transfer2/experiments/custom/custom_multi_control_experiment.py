@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Custom Experiment Configuration for Multi-Control Post Training
-# Trains a model with 3 control types: blur, depth, hdmap_bbox
+# Trains a model with 3 control types: vis (blur), depth, bbox (hdmap)
 #
-# Option B: Start from Predict2.5 multiview checkpoint (no ControlNet heads)
-# This will train all 3 control heads from scratch
+# Option D: Use Transfer2.5 multiview checkpoint but train all 3 heads from scratch
+# By using "bbox" instead of "hdmap", the pre-trained hdmap_bbox weights are ignored
 
 import os
 
@@ -28,9 +28,10 @@ from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
     collate_fn,
 )
 
-# Get the Predict2.5 multiview checkpoint (base model without ControlNet heads)
-# This is the base DiT model that we will add control heads to
-PREDICT2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("524af350-2e43-496c-8590-3646ae1325da")
+# Get the Transfer2.5 multiview checkpoint (optimized for control tasks)
+# Using "bbox" instead of "hdmap" so pre-trained hdmap_bbox weights are NOT used
+# All 3 control heads (vis, depth, bbox) will be randomly initialized
+TRANSFER2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a")
 
 
 # ============================================================================
@@ -99,8 +100,8 @@ def register_custom_dataloader() -> None:
 # ============================================================================
 
 # Main experiment configuration
-# Option B: Start from Predict2.5 multiview (base DiT only, no ControlNet)
-# Train all 3 control heads (vis, depth, hdmap_bbox) from scratch
+# Option D: Use Transfer2.5 multiview (optimized for control) but train all 3 heads from scratch
+# Using "bbox" instead of "hdmap" so all heads (vis, depth, bbox) are randomly initialized
 custom_multi_control_post_train = dict(
     # Use Transfer2 multiview config (includes ControlNet architecture)
     # Override with custom dataloader
@@ -121,7 +122,7 @@ custom_multi_control_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=500,  # Save every 500 iterations
-        load_path=PREDICT2_MULTIVIEW_CHECKPOINT.path,  # Load from Predict2.5 multiview
+        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,  # Load from Transfer2.5 multiview
         load_training_state=False,  # Don't load optimizer state
         strict_resume=False,  # Allow missing keys (ControlNet heads will be random initialized)
         load_from_object_store=dict(enabled=False),
@@ -140,8 +141,8 @@ custom_multi_control_post_train = dict(
     ),
     model=dict(
         config=dict(
-            # CRITICAL: 3 control heads - vis (blur), depth, hdmap_bbox
-            hint_keys="vis_depth_hdmap",
+            # CRITICAL: 3 control heads - vis (blur), depth, bbox (hdmap data)
+            hint_keys="vis_depth_bbox",
             # Training configuration
             min_num_conditional_frames_per_view=0,  # t2w mode
             max_num_conditional_frames_per_view=2,  # i2w or v2v
@@ -208,7 +209,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -219,7 +220,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -260,7 +261,7 @@ custom_multi_control_post_train_small = dict(
     ),
     checkpoint=dict(
         save_iter=100,  # Save every 100 iterations for testing
-        load_path=PREDICT2_MULTIVIEW_CHECKPOINT.path,
+        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(enabled=False),
@@ -279,7 +280,7 @@ custom_multi_control_post_train_small = dict(
     ),
     model=dict(
         config=dict(
-            hint_keys="vis_depth_hdmap",
+            hint_keys="vis_depth_bbox",
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=2,
             condition_locations=["first_random_n"],
@@ -338,7 +339,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -349,7 +350,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_vis", "control_input_depth", "control_input_bbox"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),

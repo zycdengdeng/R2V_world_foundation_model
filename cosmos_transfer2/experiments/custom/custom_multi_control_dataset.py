@@ -266,11 +266,11 @@ class MultiControlMultiviewDataset(Dataset):
             ),
             "original_hw": torch.tensor(original_sizes, dtype=torch.int64),
             # Three control inputs
-            # NOTE: We use "control_input_vis" for blur data to match the existing condition class
-            # The model's hint_keys should be set to "vis_depth_hdmap"
+            # NOTE: We use "control_input_vis" for blur data, "control_input_bbox" for hdmap data
+            # The model's hint_keys should be set to "vis_depth_bbox"
             "control_input_vis": rearrange(torch.cat(multiview_control_blur, dim=0), "t c h w -> c t h w"),
             "control_input_depth": rearrange(torch.cat(multiview_control_depth, dim=0), "t c h w -> c t h w"),
-            "control_input_hdmap_bbox": rearrange(torch.cat(multiview_control_hdmap, dim=0), "t c h w -> c t h w"),
+            "control_input_bbox": rearrange(torch.cat(multiview_control_hdmap, dim=0), "t c h w -> c t h w"),
         }
 
         return sample

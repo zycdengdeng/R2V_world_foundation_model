@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Custom Multi-Control Post Training Script
-# Option B: Train 3 control heads (vis, depth, hdmap_bbox) from Predict2.5 base
+# Option D: Train 3 control heads (vis, depth, bbox) using Transfer2.5 base
 #
-# This script trains ControlNet heads from scratch using Predict2.5 multiview
-# as the base model. All 3 control types will be learned from random initialization.
+# This script trains ControlNet heads from scratch using Transfer2.5 multiview
+# as the base model. By using "bbox" instead of "hdmap", pre-trained hdmap weights are ignored.
 
 set -e
 
@@ -43,10 +43,10 @@ WANDB_MODE=${WANDB_MODE:-"disabled"}
 # ============================================================================
 
 echo "=============================================="
-echo "Custom Multi-Control Post Training (Option B)"
+echo "Custom Multi-Control Post Training (Option D)"
 echo "=============================================="
-echo "Base Model: Predict2.5 Multiview (no ControlNet)"
-echo "Control Heads: vis (blur), depth, hdmap_bbox"
+echo "Base Model: Transfer2.5 Multiview (optimized for control)"
+echo "Control Heads: vis (blur), depth, bbox (all from scratch)"
 echo "=============================================="
 echo "NUM_GPUS: ${NUM_GPUS}"
 echo "OUTPUT_ROOT: ${IMAGINAIRE_OUTPUT_ROOT}"
@@ -61,10 +61,10 @@ mkdir -p "${IMAGINAIRE_OUTPUT_ROOT}"
 # Check HuggingFace cache
 echo ""
 echo "Checking HuggingFace cache..."
-if [ -d "${HF_HOME}/hub/models--nvidia--Cosmos-Predict2.5-2B" ]; then
-    echo "  [OK] Cosmos-Predict2.5-2B found in cache"
+if [ -d "${HF_HOME}/hub/models--nvidia--Cosmos-Transfer2.5-2B" ]; then
+    echo "  [OK] Cosmos-Transfer2.5-2B found in cache"
 else
-    echo "  [INFO] Cosmos-Predict2.5-2B will be downloaded during training"
+    echo "  [INFO] Cosmos-Transfer2.5-2B will be downloaded during training"
 fi
 
 # ============================================================================
@@ -87,7 +87,7 @@ echo ""
 # ============================================================================
 
 echo "Starting training..."
-echo "  hint_keys: vis_depth_hdmap (3 control heads)"
+echo "  hint_keys: vis_depth_bbox (3 control heads, all from scratch)"
 echo "  max_iter: 20000 (full) / 500 (small)"
 echo "  save_iter: 500 (full) / 100 (small)"
 echo ""
