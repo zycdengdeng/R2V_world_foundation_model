@@ -331,9 +331,10 @@ def register_zihanw_multicontrol_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=21,
         single_caption_camera_name="camera_front_wide_120fov",
-        # Use 3 cameras for 3 GPU training (front-left-right coverage)
-        # state_t=6 requires cp_size to be a factor of 6 (1, 2, 3, or 6)
-        selected_cameras=CAMERAS_3VIEW,
+        # Use 2 cameras for 2 GPU training (front-rear coverage)
+        # Constraints: state_t=6 (factors: 1,2,3,6) AND num_heads=16 (factors: 1,2,4,8,16)
+        # Valid cp_size values: intersection = {1, 2}
+        selected_cameras=CAMERAS_2VIEW,
     )
 
     cs.store(

@@ -26,9 +26,9 @@ echo "  HF_HUB_CACHE: ${HF_HUB_CACHE}"
 echo "=================================="
 
 # Get number of GPUs
-# Default to 3 GPUs for 3-view training (state_t=6 requires cp_size to be factor of 6)
-# Valid GPU counts for 21-frame videos: 2, 3, or 6 (matching context_parallel_size)
-NGPUS="${NGPUS:-3}"
+# Default to 2 GPUs for 2-view training
+# Constraints: state_t=6 AND num_heads=16 → valid cp_size = {1, 2}
+NGPUS="${NGPUS:-2}"
 MASTER_PORT="${MASTER_PORT:-12341}"
 
 echo "Running with ${NGPUS} GPUs on port ${MASTER_PORT}"
