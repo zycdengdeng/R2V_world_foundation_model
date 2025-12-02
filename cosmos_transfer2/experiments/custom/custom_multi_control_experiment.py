@@ -116,7 +116,8 @@ custom_multi_control_post_train = dict(
         {"override /ckpt_type": "dcp"},
         {"override /optimizer": "fusedadamw"},
         {"override /tokenizer": "wan2pt1_tokenizer"},
-        {"override /callbacks": "wandb"},  # Enable WandB logging
+        # Callbacks: basic (iter_speed, heart_beat, device_monitor, grad_clip, etc.) + wandb + cluster_speed
+        {"override /callbacks": ["basic", "wandb", "cluster_speed"]},
         "_self_",
     ],
     job=dict(
@@ -258,7 +259,8 @@ custom_multi_control_post_train_small = dict(
         {"override /ckpt_type": "dcp"},
         {"override /optimizer": "fusedadamw"},
         {"override /tokenizer": "wan2pt1_tokenizer"},
-        {"override /callbacks": "wandb"},  # Enable WandB logging
+        # Callbacks: basic (iter_speed, heart_beat, device_monitor, grad_clip, etc.) + wandb + cluster_speed
+        {"override /callbacks": ["basic", "wandb", "cluster_speed"]},
         "_self_",
     ],
     job=dict(
