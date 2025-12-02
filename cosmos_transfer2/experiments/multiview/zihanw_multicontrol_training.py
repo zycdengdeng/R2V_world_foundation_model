@@ -65,6 +65,8 @@ zihanw_multicontrol_post_train = dict(
             # Adjust for 21 frames: pixel_frames = (state_t - 1) * 4 + 1
             # 21 = (6 - 1) * 4 + 1, so state_t = 6
             state_t=6,  # latent temporal dimension for 21 frames
+            # Override view sampling for 4-view training
+            train_sample_views_range=(4, 4),  # Always sample exactly 4 views
         ),
     ),
     trainer=dict(
