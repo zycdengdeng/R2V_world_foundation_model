@@ -22,17 +22,20 @@ import argparse
 import os
 import sys
 
-import torch
-from einops import rearrange
-from loguru import logger
-
-# Add project root to path
+# Add project root to path FIRST
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Set environment variables before imports
+# Set environment variables BEFORE any other imports
 os.environ["NVTE_FUSED_ATTN"] = "0"
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+
+# Import HF mirror config BEFORE any huggingface imports
+import cosmos_transfer2._src.imaginaire.utils.hf_mirror  # noqa: F401
+
+import torch
+from einops import rearrange
+from loguru import logger
 
 from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
 from cosmos_transfer2._src.imaginaire.utils import distributed
