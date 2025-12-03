@@ -38,6 +38,7 @@ zihanw_multicontrol_post_train = dict(
     defaults=[
         f"/experiment/{DEFAULT_CHECKPOINT.experiment}",
         {"override /data_train": "zihanw_multicontrol_multiview"},
+        {"override /data_val": "zihanw_multicontrol_multiview_val"},
     ],
     job=dict(
         project="cosmos_transfer_v2p5",
@@ -74,6 +75,8 @@ zihanw_multicontrol_post_train = dict(
     trainer=dict(
         logging_iter=50,
         max_iter=10_000,
+        run_validation=True,  # Enable validation
+        validation_iter=200,  # Run validation every 200 iterations
         callbacks=dict(
             heart_beat=dict(
                 save_s3=False,

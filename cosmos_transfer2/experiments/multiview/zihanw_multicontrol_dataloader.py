@@ -111,6 +111,7 @@ class MultiControlMultiviewDataset(Dataset):
         single_caption_camera_name: str = "camera_front_wide_120fov",
         selected_cameras: tuple[str, ...] | None = None,  # Subset of cameras to use
         exclude_clips: tuple[str, ...] = (),  # Clip prefixes to exclude (e.g., ("075", "077"))
+        include_only_clips: tuple[str, ...] = (),  # If set, ONLY include clips matching these prefixes
     ) -> None:
         self.base_video_dir = base_video_dir
         self.control_dirs = control_dirs
@@ -121,6 +122,7 @@ class MultiControlMultiviewDataset(Dataset):
         self.num_video_frames = num_video_frames
         self.single_caption_camera_name = single_caption_camera_name
         self.exclude_clips = exclude_clips
+        self.include_only_clips = include_only_clips
 
         # Use selected cameras or default to all 7
         self.selected_cameras = selected_cameras if selected_cameras else DEFAULT_CAMERAS
@@ -156,8 +158,18 @@ class MultiControlMultiviewDataset(Dataset):
         captions_files = list(caption_path.glob("**/*.json"))
         unique_names = sorted(set(f.stem for f in captions_files))
 
-        # Filter out excluded clips
-        if self.exclude_clips:
+        # Filter clips based on include/exclude rules
+        if self.include_only_clips:
+            # Only include clips matching these prefixes (for validation)
+            original_count = len(unique_names)
+            unique_names = [
+                name for name in unique_names
+                if any(name.startswith(prefix) for prefix in self.include_only_clips)
+            ]
+            included_count = len(unique_names)
+            print(f"Included {included_count} clips matching prefixes: {self.include_only_clips} (from {original_count} total)")
+        elif self.exclude_clips:
+            # Exclude clips matching these prefixes (for training)
             original_count = len(unique_names)
             unique_names = [
                 name for name in unique_names
@@ -393,5 +405,44 @@ def register_zihanw_multicontrol_dataloader() -> None:
     )
 
 
+def register_zihanw_multicontrol_val_dataloader() -> None:
+    """Register the validation dataloader using eval clips (075, 077)."""
+
+    cs = ConfigStore.instance()
+
+    # Validation dataset - ONLY use clips 075 and 077
+    val_dataset = L(MultiControlMultiviewDataset)(
+        base_video_dir="/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection",
+        control_dirs={
+            "blur": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection/control_input_blur",
+            "depth": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/DepthSparse/control_input_depth",
+            "hdmap_bbox": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/HDMapBbox/control_input_hdmap_bbox",
+        },
+        folder_to_camera_key={f"ftheta_{camera_name}": camera_name for camera_name in DEFAULT_CAMERAS},
+        resolution_hw=(720, 1280),
+        num_video_frames=29,
+        single_caption_camera_name="camera_front_wide_120fov",
+        selected_cameras=CAMERAS_2VIEW,
+        # Only include eval clips (inverse of training exclusion)
+        include_only_clips=("075", "077"),
+    )
+
+    cs.store(
+        group="data_val",
+        package="dataloader_val",
+        name="zihanw_multicontrol_multiview_val",
+        node=L(get_generic_dataloader)(
+            dataset=val_dataset,
+            sampler=L(get_sampler)(dataset=val_dataset) if dist.is_initialized() else None,
+            collate_fn=collate_fn,
+            batch_size=1,
+            drop_last=False,  # Don't drop last for validation
+            num_workers=4,
+            pin_memory=True,
+        ),
+    )
+
+
 # Auto-register when module is imported
 register_zihanw_multicontrol_dataloader()
+register_zihanw_multicontrol_val_dataloader()
