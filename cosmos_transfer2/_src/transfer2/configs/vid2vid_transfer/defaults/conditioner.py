@@ -39,6 +39,7 @@ from cosmos_transfer2._src.transfer2.networks.siglip2_image_context import SigLi
 class ControlVideo2WorldCondition(Video2WorldCondition):
     control_input_edge: Optional[torch.Tensor] = None
     control_input_vis: Optional[torch.Tensor] = None
+    control_input_blur: Optional[torch.Tensor] = None  # Added for custom multi-control training
     control_input_depth: Optional[torch.Tensor] = None
     control_input_seg: Optional[torch.Tensor] = None
     control_input_inpaint: Optional[torch.Tensor] = None

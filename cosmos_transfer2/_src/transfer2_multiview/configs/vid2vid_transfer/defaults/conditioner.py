@@ -212,6 +212,19 @@ MultiViewVideoPredictionControlConditioner: LazyDict = L(MultiViewControlVideo2W
         dropout_rate=0.0,
         dtype=None,
     ),
+    # Added for custom multi-control training (blur + depth + hdmap)
+    control_input_blur=L(ReMapkey)(
+        input_key="control_input_blur",
+        output_key="control_input_blur",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
+    control_input_depth=L(ReMapkey)(
+        input_key="control_input_depth",
+        output_key="control_input_depth",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
 )
 
 

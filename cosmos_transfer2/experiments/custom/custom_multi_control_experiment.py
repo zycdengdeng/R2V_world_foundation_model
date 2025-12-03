@@ -109,10 +109,11 @@ def register_custom_dataloader() -> None:
 # ============================================================================
 
 # Main experiment configuration
-# hint_keys="blur_depth_hdmap" will be parsed to:
-#   blur -> control_input_blur (from scratch)
-#   depth -> control_input_depth (from scratch)
-#   hdmap -> control_input_hdmap_bbox (uses pre-trained weights)
+# hint_keys="hdmap_blur_depth" will be parsed to:
+#   hdmap -> control_input_hdmap_bbox (channels 0-15, uses pre-trained weights)
+#   blur -> control_input_blur (channels 16-31, from scratch)
+#   depth -> control_input_depth (channels 32-47, from scratch)
+# NOTE: hdmap must be first to align with Transfer2.5 pre-trained channel positions
 custom_multi_control_post_train = dict(
     # Use Transfer2 multiview config (includes ControlNet architecture)
     # Override with custom dataloader
@@ -154,8 +155,9 @@ custom_multi_control_post_train = dict(
     ),
     model=dict(
         config=dict(
-            # 3 control heads: blur (from scratch), depth (from scratch), hdmap (pre-trained)
-            hint_keys="blur_depth_hdmap",
+            # 3 control heads: hdmap (pre-trained), blur (from scratch), depth (from scratch)
+            # hdmap must be first to use pre-trained weights at channels 0-15
+            hint_keys="hdmap_blur_depth",
             # Training configuration
             min_num_conditional_frames_per_view=0,  # t2w mode
             max_num_conditional_frames_per_view=2,  # i2w or v2v
@@ -224,7 +226,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -235,7 +237,7 @@ custom_multi_control_post_train = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -297,7 +299,8 @@ custom_multi_control_post_train_small = dict(
     ),
     model=dict(
         config=dict(
-            hint_keys="blur_depth_hdmap",
+            # hdmap must be first to use pre-trained weights at channels 0-15
+            hint_keys="hdmap_blur_depth",
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=2,
             condition_locations=["first_random_n"],
@@ -356,7 +359,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
@@ -367,7 +370,7 @@ custom_multi_control_post_train_small = dict(
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
