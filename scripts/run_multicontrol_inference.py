@@ -261,6 +261,32 @@ def main():
         sample_name = batch.get("__url__", [f"sample_{i}"])[0]
         logger.info(f"Processing sample {i+1}/{min(len(dataloader.dataset), args.max_samples)}: {sample_name}")
 
+        n_views = batch["sample_n_views"].item()
+
+        # Save ground truth and control videos BEFORE model processing
+        # (because generate_from_batch modifies batch tensors in-place)
+        if inference.rank0:
+            # Save ground truth video
+            gt_video = batch["video"].clone().float() / 255.0  # Clone and normalize to [0, 1]
+            if gt_video.dim() == 4:  # [C, T, H, W]
+                gt_video = gt_video.unsqueeze(0)
+            gt_wide = time_to_width_dimension(gt_video.cpu(), n_views)
+            gt_path = os.path.join(args.save_root, f"{sample_name}_ground_truth")
+            save_img_or_video(gt_wide[0], gt_path, fps=args.fps)
+            logger.info(f"Saved ground truth video to {gt_path}.mp4")
+
+            # Save control inputs
+            for ctrl_name in ["blur", "depth", "hdmap_bbox"]:
+                ctrl_key = f"control_input_{ctrl_name}"
+                if ctrl_key in batch:
+                    ctrl_video = batch[ctrl_key].clone().float() / 255.0
+                    if ctrl_video.dim() == 4:
+                        ctrl_video = ctrl_video.unsqueeze(0)
+                    ctrl_wide = time_to_width_dimension(ctrl_video.cpu(), n_views)
+                    ctrl_path = os.path.join(args.save_root, f"{sample_name}_control_{ctrl_name}")
+                    save_img_or_video(ctrl_wide[0], ctrl_path, fps=args.fps)
+                    logger.info(f"Saved control video to {ctrl_path}.mp4")
+
         # Set number of conditional frames (0 = unconditional)
         batch["num_conditional_frames"] = 0
 
@@ -272,36 +298,13 @@ def main():
             num_steps=args.num_steps,
         )
 
-        # Save results (only on rank 0)
+        # Save generated video (only on rank 0)
         if inference.rank0:
-            n_views = batch["sample_n_views"].item()
-
             # Save generated video (all views stacked horizontally)
             video_wide = time_to_width_dimension(video, n_views)
             save_path = os.path.join(args.save_root, f"{sample_name}_generated")
             save_img_or_video(video_wide[0], save_path, fps=args.fps)
             logger.info(f"Saved generated video to {save_path}.mp4")
-
-            # Save ground truth video for comparison
-            gt_video = batch["video"].float() / 255.0  # Normalize to [0, 1]
-            # batch["video"] already has batch dimension from dataloader
-            if gt_video.dim() == 4:  # [C, T, H, W]
-                gt_video = gt_video.unsqueeze(0)  # Add batch dimension
-            gt_wide = time_to_width_dimension(gt_video, n_views)
-            gt_path = os.path.join(args.save_root, f"{sample_name}_ground_truth")
-            save_img_or_video(gt_wide[0], gt_path, fps=args.fps)
-            logger.info(f"Saved ground truth video to {gt_path}.mp4")
-
-            # Save control inputs for reference
-            for ctrl_name in ["blur", "depth", "hdmap_bbox"]:
-                ctrl_key = f"control_input_{ctrl_name}"
-                if ctrl_key in batch:
-                    ctrl_video = batch[ctrl_key].float() / 255.0
-                    if ctrl_video.dim() == 4:  # [C, T, H, W]
-                        ctrl_video = ctrl_video.unsqueeze(0)
-                    ctrl_wide = time_to_width_dimension(ctrl_video, n_views)
-                    ctrl_path = os.path.join(args.save_root, f"{sample_name}_control_{ctrl_name}")
-                    save_img_or_video(ctrl_wide[0], ctrl_path, fps=args.fps)
 
     # Cleanup
     inference.cleanup()
