@@ -98,6 +98,13 @@ class MultiControlInference:
 
         self.model = model
         self.config = config
+
+        # Debug: Print control keys being used
+        if hasattr(model, 'hint_keys'):
+            logger.info(f"Model hint_keys (control inputs): {model.hint_keys}")
+        if hasattr(model, 'net') and hasattr(model.net, 'control_embedder'):
+            logger.info(f"Control embedder input channels: {model.net.control_embedder.proj[1].in_features}")
+
         logger.info("Model loaded successfully")
 
     def _init_distributed(self):
