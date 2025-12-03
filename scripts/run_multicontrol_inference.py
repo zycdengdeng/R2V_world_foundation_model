@@ -284,7 +284,9 @@ def main():
 
             # Save ground truth video for comparison
             gt_video = batch["video"].float() / 255.0  # Normalize to [0, 1]
-            gt_video = gt_video.unsqueeze(0)  # Add batch dimension
+            # batch["video"] already has batch dimension from dataloader
+            if gt_video.dim() == 4:  # [C, T, H, W]
+                gt_video = gt_video.unsqueeze(0)  # Add batch dimension
             gt_wide = time_to_width_dimension(gt_video, n_views)
             gt_path = os.path.join(args.save_root, f"{sample_name}_ground_truth")
             save_img_or_video(gt_wide[0], gt_path, fps=args.fps)
@@ -295,7 +297,8 @@ def main():
                 ctrl_key = f"control_input_{ctrl_name}"
                 if ctrl_key in batch:
                     ctrl_video = batch[ctrl_key].float() / 255.0
-                    ctrl_video = ctrl_video.unsqueeze(0)
+                    if ctrl_video.dim() == 4:  # [C, T, H, W]
+                        ctrl_video = ctrl_video.unsqueeze(0)
                     ctrl_wide = time_to_width_dimension(ctrl_video, n_views)
                     ctrl_path = os.path.join(args.save_root, f"{sample_name}_control_{ctrl_name}")
                     save_img_or_video(ctrl_wide[0], ctrl_path, fps=args.fps)
