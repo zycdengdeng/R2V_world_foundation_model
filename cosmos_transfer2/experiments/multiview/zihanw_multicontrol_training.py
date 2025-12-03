@@ -39,6 +39,8 @@ zihanw_multicontrol_post_train = dict(
         f"/experiment/{DEFAULT_CHECKPOINT.experiment}",
         {"override /data_train": "zihanw_multicontrol_multiview"},
         {"override /data_val": "zihanw_multicontrol_multiview_val"},
+        # Override conditioner to use multi-control version with blur, depth, and hdmap_bbox
+        {"override /conditioner": "video_prediction_multiview_control_conditioner_multicontrol"},
     ],
     job=dict(
         project="cosmos_transfer_v2p5",
@@ -47,9 +49,11 @@ zihanw_multicontrol_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Resume from iteration 400 checkpoint
-        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_multicontrol/zihanw_multicontrol_post_train/checkpoints/iter_000000400",
-        load_training_state=True,  # Resume optimizer and iteration counter
+        # NOTE: For fresh training with correct conditioner, set load_path="" and load_training_state=False
+        # Previous checkpoints (iter_000000400, iter_000003000) were trained with WRONG conditioner
+        # (only hdmap_bbox, missing blur and depth) - DO NOT resume from them!
+        load_path="",  # Start fresh with correct conditioner
+        load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(
             enabled=False,  # Loading from local filesystem
@@ -60,9 +64,12 @@ zihanw_multicontrol_post_train = dict(
     ),
     model=dict(
         config=dict(
-            # Multiple control inputs: blur + depth + hdmap
+            # Multiple control inputs: blur + depth + hdmap_bbox
             # hint_keys format: control names joined by "_"
-            hint_keys="blur_depth_hdmap",
+            # IMPORTANT: Must match dataloader output keys exactly!
+            # Dataloader outputs: control_input_blur, control_input_depth, control_input_hdmap_bbox
+            # So hint_keys should be: "blur_depth_hdmap_bbox" (NOT "blur_depth_hdmap"!)
+            hint_keys="blur_depth_hdmap_bbox",
             base_load_from=None,
             # Adjust for 29 frames: pixel_frames = (state_t - 1) * 4 + 1
             # 29 = (8 - 1) * 4 + 1, so state_t = 8

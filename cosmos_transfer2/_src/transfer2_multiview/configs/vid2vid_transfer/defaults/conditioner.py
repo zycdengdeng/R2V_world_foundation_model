@@ -240,6 +240,44 @@ MultiViewVideoPredictionControlConditionerPerViewDropout: LazyDict = L(MultiView
 )
 
 
+# Multi-control config with blur, depth, and hdmap_bbox
+# This config includes control_input_blur, control_input_depth, and control_input_hdmap_bbox
+# for multi-control training experiments (zihanw's experiments)
+_SHARED_CONFIG_AV_MULTICONTROL = copy.deepcopy(_SHARED_CONFIG_AV)
+# Add blur control input (not in base _SHARED_CONFIG_AV)
+_SHARED_CONFIG_AV_MULTICONTROL["control_input_blur"] = L(ReMapkey)(
+    input_key="control_input_blur",
+    output_key="control_input_blur",
+    dropout_rate=0.0,
+    dtype=None,
+)
+# Add depth control input (was removed from _SHARED_CONFIG_AV)
+_SHARED_CONFIG_AV_MULTICONTROL["control_input_depth"] = L(ReMapkey)(
+    input_key="control_input_depth",
+    output_key="control_input_depth",
+    dropout_rate=0.0,
+    dtype=None,
+)
+# hdmap_bbox is already in _SHARED_CONFIG_AV
+
+MultiViewVideoPredictionControlConditionerMultiControl: LazyDict = L(MultiViewControlVideo2WorldConditioner)(
+    **_SHARED_CONFIG_AV_MULTICONTROL,
+    # Add multiview-specific config
+    view_indices_B_T=L(ReMapkey)(
+        input_key="latent_view_indices_B_T",
+        output_key="view_indices_B_T",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
+    ref_cam_view_idx_sample_position=L(ReMapkey)(
+        input_key="ref_cam_view_idx_sample_position",
+        output_key="ref_cam_view_idx_sample_position",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
+)
+
+
 class TextAttrEmptyStringDropout(TextAttr):
     def __init__(
         self,
@@ -305,4 +343,12 @@ def register_conditioner():
         package="model.config.conditioner",
         name="video_prediction_multiview_control_conditioner_per_view_dropout",
         node=MultiViewVideoPredictionControlConditionerPerViewDropout,
+    )
+
+    # Multi-control conditioner with blur, depth, and hdmap_bbox
+    cs.store(
+        group="conditioner",
+        package="model.config.conditioner",
+        name="video_prediction_multiview_control_conditioner_multicontrol",
+        node=MultiViewVideoPredictionControlConditionerMultiControl,
     )
