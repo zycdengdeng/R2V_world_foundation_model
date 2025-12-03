@@ -45,7 +45,7 @@ zihanw_multicontrol_post_train = dict(
     job=dict(
         project="cosmos_transfer_v2p5",
         group="zihanw_multicontrol",
-        name="zihanw_multicontrol_post_train"
+        name="zihanw_multicontrol_post_train_v2"
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
