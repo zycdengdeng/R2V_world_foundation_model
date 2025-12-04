@@ -12,10 +12,15 @@
 
 import copy
 import os
+from datetime import datetime
 
 import torch
 import torch.distributed as dist
 from hydra.core.config_store import ConfigStore
+
+# Generate timestamp for unique run directories
+# Format: YYYYMMDD_HHMMSS (e.g., 20241204_153045)
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
@@ -212,7 +217,7 @@ custom_multi_control_post_train = dict(
     job=dict(
         project="cosmos_transfer_custom",
         group="multi_control",
-        name="2b_custom_multi_control_post_train",
+        name=f"2b_custom_multi_control_{RUN_TIMESTAMP}",  # Unique name with timestamp
     ),
     checkpoint=dict(
         save_iter=500,  # Save every 500 iterations
@@ -372,7 +377,7 @@ custom_multi_control_post_train_small = dict(
     job=dict(
         project="cosmos_transfer_custom",
         group="multi_control",
-        name="2b_custom_multi_control_post_train_small",
+        name=f"2b_custom_multi_control_small_{RUN_TIMESTAMP}",  # Unique name with timestamp
     ),
     checkpoint=dict(
         save_iter=100,  # Save every 100 iterations for testing
