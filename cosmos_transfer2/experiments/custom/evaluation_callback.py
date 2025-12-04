@@ -18,7 +18,7 @@ import wandb
 from einops import rearrange, repeat
 from torch.utils.data import DataLoader
 
-from cosmos_transfer2._src.imaginaire.callbacks import Callback
+from cosmos_transfer2._src.imaginaire.utils.callback import Callback
 from cosmos_transfer2._src.imaginaire.utils import log, misc
 from cosmos_transfer2._src.imaginaire.utils.parallel_state_helper import is_tp_cp_pp_rank0
 from cosmos_transfer2._src.predict2.callbacks.every_n_draw_sample import resize_image
