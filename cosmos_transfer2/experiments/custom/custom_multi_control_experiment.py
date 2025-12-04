@@ -13,6 +13,7 @@
 import copy
 import os
 
+import torch
 import torch.distributed as dist
 from hydra.core.config_store import ConfigStore
 
@@ -38,6 +39,10 @@ from cosmos_transfer2._src.predict2_multiview.conditioner import MVTextAttr
 from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
     MultiControlMultiviewDataset,
     collate_fn,
+)
+# Import evaluation callback
+from cosmos_transfer2.experiments.custom.evaluation_callback import (
+    EveryNEvalMultiviewVideo,
 )
 
 # Get the Transfer2.5 multiview checkpoint (optimized for control tasks)
@@ -126,11 +131,30 @@ TRAINING_CAMERAS = (
 # Dataset Configuration
 # ============================================================================
 
+# Create evaluation dataset (test set only - scenes 047, 061)
+# This is instantiated directly (not lazy) so we can pass it to the callback
+def create_eval_dataset():
+    """Create evaluation dataset with only test scenes."""
+    # Include only TEST_SCENE_IDS by excluding all TRAIN_SCENE_IDS
+    return MultiControlMultiviewDataset(
+        blur_dataset_dir=BLUR_DATASET_DIR,
+        depth_dataset_dir=DEPTH_DATASET_DIR,
+        hdmap_dataset_dir=HDMAP_DATASET_DIR,
+        resolution_hw=(720, 1280),
+        num_video_frames=29,
+        fps_downsample_factor=1,
+        camera_keys=TRAINING_CAMERAS if not SMOKE else TRAINING_CAMERAS[:1],
+        single_caption_camera_name="camera_front_wide_120fov",
+        add_view_prefix_to_caption=True,
+        exclude_scene_ids=TRAIN_SCENE_IDS,  # Exclude training scenes = keep only test scenes
+    )
+
+
 def register_custom_dataloader() -> None:
     """Register custom dataloader with multi-control dataset."""
     cs = ConfigStore.instance()
 
-    # Create dataset
+    # Create training dataset (excludes test scenes)
     dataset = L(MultiControlMultiviewDataset)(
         blur_dataset_dir=BLUR_DATASET_DIR,
         depth_dataset_dir=DEPTH_DATASET_DIR,
@@ -299,6 +323,20 @@ custom_multi_control_post_train = dict(
                 control_weights=[0.0, 1.0],
                 save_s3=False,
             ),
+            # Evaluation on fixed test samples
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
+                eval_dataset=create_eval_dataset(),
+                eval_sample_indices=[0, 1],  # First 2 samples from test set
+                every_n=2000,  # Evaluate every 2000 iterations
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[1.0],  # Only test with control enabled
+                num_cond_frames=[1],  # 1 conditioning frame
+                save_local=True,
+                name="eval_test",
+            ),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
@@ -433,6 +471,20 @@ custom_multi_control_post_train_small = dict(
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
                 control_weights=[0.0, 1.0],
                 save_s3=False,
+            ),
+            # Evaluation on fixed test samples (less frequent for small config)
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
+                eval_dataset=create_eval_dataset(),
+                eval_sample_indices=[0, 1],  # First 2 samples from test set
+                every_n=200,  # Evaluate every 200 iterations for testing
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[1.0],
+                num_cond_frames=[1],
+                save_local=True,
+                name="eval_test",
             ),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
