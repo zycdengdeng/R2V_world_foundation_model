@@ -93,6 +93,7 @@ zihanw_multicontrol_post_train = dict(
                 save_s3=False,
             ),
             device_monitor=dict(
+                enabled=False,  # Disabled: causes wandb timeout issues
                 save_s3=False,
             ),
             every_n_sample_reg=dict(
@@ -106,9 +107,11 @@ zihanw_multicontrol_post_train = dict(
                 ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
             ),
             wandb=dict(
+                enabled=False,  # Disabled: no wandb connection
                 save_s3=False,
             ),
             wandb_10x=dict(
+                enabled=False,  # Disabled: no wandb connection
                 save_s3=False,
             ),
             dataloader_speed=dict(
