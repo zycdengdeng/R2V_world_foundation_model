@@ -9,6 +9,7 @@
 # - depth: train from scratch (not in Transfer2.5)
 # - hdmap: uses pre-trained hdmap_bbox weights from Transfer2.5
 
+import copy
 import os
 
 import torch.distributed as dist
@@ -16,14 +17,22 @@ from hydra.core.config_store import ConfigStore
 
 from cosmos_transfer2._src.imaginaire.flags import SMOKE
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
+from cosmos_transfer2._src.imaginaire.lazy_config import LazyDict
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
 
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_generic_dataloader, get_sampler
 from cosmos_transfer2._src.predict2.text_encoders.text_encoder import EmbeddingConcatStrategy
+from cosmos_transfer2._src.predict2.conditioner import ReMapkey
 # Note: We define TRAINING_CAMERAS locally instead of using DEFAULT_CAMERAS
 from cosmos_transfer2._src.predict2_multiview.callbacks.every_n_draw_sample_multiviewvideo import (
     EveryNDrawSampleMultiviewVideo,
 )
+# Import conditioner for custom configuration
+from cosmos_transfer2._src.transfer2_multiview.configs.vid2vid_transfer.defaults.conditioner import (
+    MultiViewControlVideo2WorldConditioner,
+    _SHARED_CONFIG_AV,
+)
+from cosmos_transfer2._src.predict2_multiview.conditioner import MVTextAttr
 
 from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
     MultiControlMultiviewDataset,
@@ -33,6 +42,53 @@ from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
 # Get the Transfer2.5 multiview checkpoint (optimized for control tasks)
 # This checkpoint has pre-trained hdmap_bbox control head
 TRANSFER2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a")
+
+
+# ============================================================================
+# Custom Conditioner Configuration
+# ============================================================================
+# The base _SHARED_CONFIG_AV only has control_input_hdmap_bbox.
+# We need to add control_input_blur and control_input_depth for our 3-control training.
+
+# Create custom config that extends _SHARED_CONFIG_AV with blur and depth
+_CUSTOM_MULTI_CONTROL_CONFIG = copy.deepcopy(_SHARED_CONFIG_AV)
+
+# Add control_input_blur (not in original config, training from scratch)
+_CUSTOM_MULTI_CONTROL_CONFIG["control_input_blur"] = L(ReMapkey)(
+    input_key="control_input_blur",
+    output_key="control_input_blur",
+    dropout_rate=0.0,
+    dtype=None,
+)
+
+# Add control_input_depth (was removed from _SHARED_CONFIG_AV, training from scratch)
+_CUSTOM_MULTI_CONTROL_CONFIG["control_input_depth"] = L(ReMapkey)(
+    input_key="control_input_depth",
+    output_key="control_input_depth",
+    dropout_rate=0.0,
+    dtype=None,
+)
+
+# Note: control_input_hdmap_bbox is already in _SHARED_CONFIG_AV
+
+# Add multiview-specific config (same as MultiViewVideoPredictionControlConditioner)
+_CUSTOM_MULTI_CONTROL_CONFIG["view_indices_B_T"] = L(ReMapkey)(
+    input_key="latent_view_indices_B_T",
+    output_key="view_indices_B_T",
+    dropout_rate=0.0,
+    dtype=None,
+)
+_CUSTOM_MULTI_CONTROL_CONFIG["ref_cam_view_idx_sample_position"] = L(ReMapkey)(
+    input_key="ref_cam_view_idx_sample_position",
+    output_key="ref_cam_view_idx_sample_position",
+    dropout_rate=0.0,
+    dtype=None,
+)
+
+# Create the custom conditioner with all 3 control inputs
+CustomMultiControlConditioner: LazyDict = L(MultiViewControlVideo2WorldConditioner)(
+    **_CUSTOM_MULTI_CONTROL_CONFIG,
+)
 
 
 # ============================================================================
@@ -115,12 +171,12 @@ def register_custom_dataloader() -> None:
 #   hdmap -> control_input_hdmap_bbox (uses pre-trained weights)
 custom_multi_control_post_train = dict(
     # Use Transfer2 multiview config (includes ControlNet architecture)
-    # Override with custom dataloader
+    # Override with custom dataloader and custom conditioner (includes blur, depth, hdmap)
     defaults=[
         {"override /data_train": "custom_multi_control_train_data"},
         {"override /model": "fsdp_rectified_flow_multiview_control"},
         {"override /net": "cosmos_v1_2B_multiview_control"},
-        {"override /conditioner": "video_prediction_multiview_control_conditioner"},
+        {"override /conditioner": "custom_multi_control_conditioner"},  # Custom conditioner with blur, depth, hdmap
         {"override /ckpt_type": "dcp"},
         {"override /optimizer": "fusedadamw"},
         {"override /tokenizer": "wan2pt1_tokenizer"},
@@ -263,7 +319,7 @@ custom_multi_control_post_train_small = dict(
         {"override /data_train": "custom_multi_control_train_data"},
         {"override /model": "fsdp_rectified_flow_multiview_control"},
         {"override /net": "cosmos_v1_2B_multiview_control"},
-        {"override /conditioner": "video_prediction_multiview_control_conditioner"},
+        {"override /conditioner": "custom_multi_control_conditioner"},  # Custom conditioner with blur, depth, hdmap
         {"override /ckpt_type": "dcp"},
         {"override /optimizer": "fusedadamw"},
         {"override /tokenizer": "wan2pt1_tokenizer"},
@@ -394,6 +450,14 @@ custom_multi_control_post_train_small = dict(
 # ============================================================================
 
 cs = ConfigStore.instance()
+
+# Register the custom conditioner with all 3 control inputs
+cs.store(
+    group="conditioner",
+    package="model.config.conditioner",
+    name="custom_multi_control_conditioner",
+    node=CustomMultiControlConditioner,
+)
 
 # Register the configurations with Hydra ConfigStore
 for _item in [
