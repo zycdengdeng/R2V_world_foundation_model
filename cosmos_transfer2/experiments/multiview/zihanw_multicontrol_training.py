@@ -49,11 +49,9 @@ zihanw_multicontrol_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # NOTE: For fresh training with correct conditioner, set load_path="" and load_training_state=False
-        # Previous checkpoints (iter_000000400, iter_000003000) were trained with WRONG conditioner
-        # (only hdmap_bbox, missing blur and depth) - DO NOT resume from them!
-        load_path="",  # Start fresh with correct conditioner
-        load_training_state=False,
+        # Resume from v2 checkpoint (trained with correct conditioner)
+        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_multicontrol/zihanw_multicontrol_post_train_v2/checkpoints/iter_000002600",
+        load_training_state=True,  # Resume optimizer and iteration counter
         strict_resume=False,
         load_from_object_store=dict(
             enabled=False,  # Loading from local filesystem
@@ -93,7 +91,6 @@ zihanw_multicontrol_post_train = dict(
                 save_s3=False,
             ),
             device_monitor=dict(
-                enabled=False,  # Disabled: causes wandb timeout issues
                 save_s3=False,
             ),
             every_n_sample_reg=dict(
@@ -107,11 +104,9 @@ zihanw_multicontrol_post_train = dict(
                 ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
             ),
             wandb=dict(
-                enabled=False,  # Disabled: no wandb connection
                 save_s3=False,
             ),
             wandb_10x=dict(
-                enabled=False,  # Disabled: no wandb connection
                 save_s3=False,
             ),
             dataloader_speed=dict(
