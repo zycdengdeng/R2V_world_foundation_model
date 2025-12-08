@@ -278,6 +278,50 @@ MultiViewVideoPredictionControlConditionerMultiControl: LazyDict = L(MultiViewCo
 )
 
 
+# Multi-control config with dropout for training with text capability preservation
+# dropout_rate=0.2 means 20% of the time each control input is randomly dropped to zeros
+# This forces the model to also learn text-only generation
+_SHARED_CONFIG_AV_MULTICONTROL_DROPOUT = copy.deepcopy(_SHARED_CONFIG_AV)
+# Add blur control input with 20% dropout
+_SHARED_CONFIG_AV_MULTICONTROL_DROPOUT["control_input_blur"] = L(ReMapkey)(
+    input_key="control_input_blur",
+    output_key="control_input_blur",
+    dropout_rate=0.2,  # 20% dropout to preserve text capability
+    dtype=None,
+)
+# Add depth control input with 20% dropout
+_SHARED_CONFIG_AV_MULTICONTROL_DROPOUT["control_input_depth"] = L(ReMapkey)(
+    input_key="control_input_depth",
+    output_key="control_input_depth",
+    dropout_rate=0.2,  # 20% dropout to preserve text capability
+    dtype=None,
+)
+# Override hdmap_bbox with 20% dropout (it was in _SHARED_CONFIG_AV with 0.0 dropout)
+_SHARED_CONFIG_AV_MULTICONTROL_DROPOUT["control_input_hdmap_bbox"] = L(ReMapkey)(
+    input_key="control_input_hdmap_bbox",
+    output_key="control_input_hdmap_bbox",
+    dropout_rate=0.2,  # 20% dropout to preserve text capability
+    dtype=None,
+)
+
+MultiViewVideoPredictionControlConditionerMultiControlDropout: LazyDict = L(MultiViewControlVideo2WorldConditioner)(
+    **_SHARED_CONFIG_AV_MULTICONTROL_DROPOUT,
+    # Add multiview-specific config
+    view_indices_B_T=L(ReMapkey)(
+        input_key="latent_view_indices_B_T",
+        output_key="view_indices_B_T",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
+    ref_cam_view_idx_sample_position=L(ReMapkey)(
+        input_key="ref_cam_view_idx_sample_position",
+        output_key="ref_cam_view_idx_sample_position",
+        dropout_rate=0.0,
+        dtype=None,
+    ),
+)
+
+
 class TextAttrEmptyStringDropout(TextAttr):
     def __init__(
         self,
@@ -351,4 +395,12 @@ def register_conditioner():
         package="model.config.conditioner",
         name="video_prediction_multiview_control_conditioner_multicontrol",
         node=MultiViewVideoPredictionControlConditionerMultiControl,
+    )
+
+    # Multi-control conditioner with 20% dropout for text capability preservation
+    cs.store(
+        group="conditioner",
+        package="model.config.conditioner",
+        name="video_prediction_multiview_control_conditioner_multicontrol_dropout",
+        node=MultiViewVideoPredictionControlConditionerMultiControlDropout,
     )
