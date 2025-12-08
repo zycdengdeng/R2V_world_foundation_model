@@ -234,6 +234,14 @@ def parse_arguments():
     parser.add_argument("--num_steps", type=int, default=35, help="Number of diffusion steps")
     parser.add_argument("--fps", type=int, default=10, help="FPS for saved videos")
     parser.add_argument("--max_samples", type=int, default=100, help="Maximum samples to generate")
+    parser.add_argument(
+        "--control_weights",
+        type=float,
+        nargs=3,
+        default=[1.0, 1.0, 1.0],
+        metavar=("BLUR", "DEPTH", "HDMAP"),
+        help="Control weights for [blur, depth, hdmap_bbox]. Default: [1.0, 1.0, 1.0]",
+    )
     return parser.parse_args()
 
 
@@ -296,6 +304,11 @@ def main():
 
         # Set number of conditional frames (0 = unconditional)
         batch["num_conditional_frames"] = 0
+
+        # Set control weights [blur, depth, hdmap_bbox]
+        batch["control_weight"] = args.control_weights
+        if inference.rank0:
+            logger.info(f"Control weights: blur={args.control_weights[0]}, depth={args.control_weights[1]}, hdmap={args.control_weights[2]}")
 
         # Generate video
         video = inference.generate_from_batch(
