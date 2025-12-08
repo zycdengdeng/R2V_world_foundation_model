@@ -49,8 +49,8 @@ zihanw_multicontrol_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Resume from v2 checkpoint (trained with correct conditioner)
-        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_multicontrol/zihanw_multicontrol_post_train_v2/checkpoints/iter_000002600",
+        # Resume from iter_000010000 checkpoint
+        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_multicontrol/zihanw_multicontrol_post_train_v2/checkpoints/iter_000010000",
         load_training_state=True,  # Resume optimizer and iteration counter
         strict_resume=False,
         load_from_object_store=dict(
@@ -79,7 +79,7 @@ zihanw_multicontrol_post_train = dict(
     ),
     trainer=dict(
         logging_iter=50,
-        max_iter=10_000,
+        max_iter=20_000,  # Extended from 10k to 20k
         run_validation=False,  # Disabled: EMA not initialized when training from scratch
         validation_iter=200,  # Run validation every 200 iterations (when enabled)
         callbacks=dict(
