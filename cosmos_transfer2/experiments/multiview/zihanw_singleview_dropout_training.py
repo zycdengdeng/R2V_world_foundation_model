@@ -147,7 +147,7 @@ zihanw_singleview_dropout_train = dict(
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
         # Resume from checkpoint (update iter_XXXXXX to your latest checkpoint)
-        load_path="/tmp/imaginaire4-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_dropout_train/checkpoints/iter_000001000",
+        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_dropout_train/checkpoints/iter_000003000",
         load_training_state=True,  # Resume optimizer and iteration counter
         strict_resume=False,
         load_from_object_store=dict(
