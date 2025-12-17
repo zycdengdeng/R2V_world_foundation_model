@@ -210,8 +210,8 @@ zihanw_singleview_dropout_train = dict(
     ),
     model_parallel=dict(
         # For single-view with state_t=8, valid cp_size: 1, 2, 4, 8
-        # Using 2 GPUs for faster training (splits temporal dimension)
-        context_parallel_size=2,
+        # Using 4 GPUs for faster training (splits temporal dimension)
+        context_parallel_size=4,
     ),
 )
 
