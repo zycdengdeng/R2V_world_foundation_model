@@ -147,7 +147,7 @@ zihanw_singleview_dropout_train = dict(
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
         # Resume from checkpoint (update iter_XXXXXX to your latest checkpoint)
-        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_dropout_train/checkpoints/iter_000003000",
+        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_dropout_train/checkpoints/iter_000010000",
         load_training_state=True,  # Resume optimizer and iteration counter
         strict_resume=False,
         load_from_object_store=dict(
@@ -170,7 +170,7 @@ zihanw_singleview_dropout_train = dict(
     ),
     trainer=dict(
         logging_iter=50,
-        max_iter=10_000,  # Start with 10k iterations
+        max_iter=30_000,  # Extended to 30k iterations
         run_validation=False,  # Disable validation initially
         validation_iter=200,
         callbacks=dict(
@@ -209,10 +209,9 @@ zihanw_singleview_dropout_train = dict(
         ),
     ),
     model_parallel=dict(
-        # Single view doesn't need context parallelism across views
-        # But we can still use it for memory efficiency
         # For single-view with state_t=8, valid cp_size: 1, 2, 4, 8
-        context_parallel_size=1,  # Single GPU for single view
+        # Using 2 GPUs for faster training (splits temporal dimension)
+        context_parallel_size=2,
     ),
 )
 
