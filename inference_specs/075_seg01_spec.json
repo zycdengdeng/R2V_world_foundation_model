@@ -1,6 +1,7 @@
 {
+    "name": "075_seg01",
     "prompt": "A driving scene captured from a front-facing camera on a vehicle. The video shows a road with surrounding environment, buildings, trees and sky.",
-    "output_dir": "/mnt/zihanw/cosmos-transfer-output/inference_results/pretrained_blur",
+    "video_path": "/mnt/zihanw/cosmos-transfer-output/inference_results/iter_20000/075_seg01_generated_front.mp4",
     "vis": {
         "control_path": "/mnt/zihanw/cosmos-transfer-output/inference_results/iter_20000/075_seg01_generated_front.mp4",
         "control_weight": 1.0
