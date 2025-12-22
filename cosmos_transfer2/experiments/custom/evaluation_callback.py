@@ -116,8 +116,22 @@ class EveryNEvalMultiviewVideo(Callback):
         from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
         batch = collate_fn(samples)
 
-        # Move to device
-        batch = misc.to(batch, **model.tensor_kwargs)
+        # Move to device, but keep video/control data as uint8
+        # The model's _normalize_video_databatch_inplace expects uint8 format
+        device = model.tensor_kwargs.get('device', 'cuda')
+
+        # Keys that should remain uint8 (video and control inputs)
+        uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
+
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                if key in uint8_keys:
+                    # Keep uint8, only move to device
+                    batch[key] = value.to(device=device)
+                else:
+                    # Apply full tensor_kwargs (device + dtype)
+                    batch[key] = value.to(**model.tensor_kwargs)
+
         return batch
 
     def on_train_start(self, model, iteration: int = 0) -> None:
