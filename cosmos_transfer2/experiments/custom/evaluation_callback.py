@@ -125,8 +125,14 @@ class EveryNEvalMultiviewVideo(Callback):
         self.rank = dist.get_rank() if dist.is_initialized() else 0
         self.data_parallel_id = self.rank
 
+        # Use self.config.job.path_local like EveryNDrawSample does
+        # self.config is automatically set by CallbackManager
         if self.local_dir is None:
-            self.local_dir = os.path.join(os.getcwd(), "eval_outputs")
+            if hasattr(self, 'config') and hasattr(self.config, 'job') and hasattr(self.config.job, 'path_local'):
+                self.local_dir = os.path.join(self.config.job.path_local, "eval_outputs")
+            else:
+                # Fallback to current directory
+                self.local_dir = os.path.join(os.getcwd(), "eval_outputs")
 
         if self.rank == 0:
             os.makedirs(self.local_dir, exist_ok=True)
