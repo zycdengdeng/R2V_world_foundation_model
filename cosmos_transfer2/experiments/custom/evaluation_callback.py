@@ -139,16 +139,19 @@ class EveryNEvalMultiviewVideo(Callback):
             log.info(f"[EveryNEvalMultiviewVideo] Will save eval outputs to {self.local_dir}")
             log.info(f"[EveryNEvalMultiviewVideo] Using {len(self.eval_sample_indices)} fixed samples from test set")
 
-    def on_train_batch_end(
+    def on_training_step_end(
         self,
-        trainer,
         model,
         data_batch: dict,
         output_batch: dict,
         loss: torch.Tensor,
-        iteration: int,
+        iteration: int = 0,
     ) -> None:
-        """Run evaluation every N iterations."""
+        """Run evaluation every N iterations.
+
+        This hook is called by the trainer after each training step.
+        Note: signature matches Callback.on_training_step_end
+        """
         if iteration % self.every_n != 0:
             return
 
@@ -158,7 +161,7 @@ class EveryNEvalMultiviewVideo(Callback):
         log.info(f"[EveryNEvalMultiviewVideo] Running evaluation at iteration {iteration}")
 
         try:
-            self._run_evaluation(trainer, model, iteration)
+            self._run_evaluation(self.trainer, model, iteration)
         except Exception as e:
             log.error(f"[EveryNEvalMultiviewVideo] Evaluation failed: {e}")
             import traceback
