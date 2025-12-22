@@ -196,6 +196,10 @@ class EveryNEvalMultiviewVideo(Callback):
 
         n_views = len(data_batch["view_indices_selection"][0])
 
+        # Compute text embeddings online (same as training)
+        if hasattr(model, 'inplace_compute_text_embeddings_online'):
+            model.inplace_compute_text_embeddings_online(data_batch)
+
         # Get raw data and condition
         raw_data, x0, condition = model.get_data_and_condition(data_batch)
         batch_size = x0.shape[0]
