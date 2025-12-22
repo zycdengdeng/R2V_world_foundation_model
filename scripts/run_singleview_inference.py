@@ -116,20 +116,37 @@ class SingleViewInference:
         guidance: float = 7.0,
         seed: int = 42,
         num_steps: int = 35,
+        use_negative_prompt: bool = True,
     ) -> torch.Tensor:
-        """Generate video from a data batch."""
+        """Generate video from a data batch.
+
+        Returns:
+            Tensor of shape (1, 3, T, H, W) with values in [0, 1]
+        """
         batch = to_model_input(batch, self.model)
 
+        # Compute text embeddings if needed (tokenizes the text)
+        if self.model.config.text_encoder_config is not None and self.model.config.text_encoder_config.compute_online:
+            self.model.inplace_compute_text_embeddings_online(batch)
+
+        # Get data and condition to determine state shape
+        raw_data, x0, condition = self.model.get_data_and_condition(batch)
+
+        self.model.eval()
         # Generate samples
         sample = self.model.generate_samples_from_batch(
             data_batch=batch,
             guidance=guidance,
+            state_shape=x0.shape[1:],
+            n_sample=x0.shape[0],
             seed=seed,
             num_steps=num_steps,
-            is_negative_prompt=False,
+            is_negative_prompt=use_negative_prompt,
         )
 
-        return sample
+        # Decode and normalize to [0, 1]
+        video = ((self.model.decode(sample) + 1.0) / 2.0).clamp(0, 1)
+        return video
 
     def cleanup(self):
         """Cleanup distributed state."""
@@ -250,9 +267,13 @@ def main():
         if inference.rank0:
             logger.info(f"Processing sample {i+1}/{min(len(dataloader), args.max_samples)}: {sample_name}")
 
-        # Save ground truth video (only on rank 0)
+        # Save ground truth and control videos BEFORE model processing
+        # (because generate_from_batch modifies batch tensors in-place)
         if inference.rank0:
-            gt_video = batch["video"]  # (B, C, T, H, W)
+            # Save ground truth video
+            gt_video = batch["video"].clone().float() / 255.0  # Clone and normalize to [0, 1]
+            if gt_video.dim() == 4:  # [C, T, H, W]
+                gt_video = gt_video.unsqueeze(0)
             gt_path = os.path.join(args.save_root, f"{sample_name}_ground_truth")
             save_img_or_video(gt_video[0], gt_path, fps=args.fps)
             logger.info(f"Saved ground truth video to {gt_path}.mp4")
@@ -261,7 +282,9 @@ def main():
             for ctrl_name in ["blur", "depth", "hdmap_bbox"]:
                 ctrl_key = f"control_input_{ctrl_name}"
                 if ctrl_key in batch:
-                    ctrl_video = batch[ctrl_key]
+                    ctrl_video = batch[ctrl_key].clone().float() / 255.0
+                    if ctrl_video.dim() == 4:
+                        ctrl_video = ctrl_video.unsqueeze(0)
                     ctrl_path = os.path.join(args.save_root, f"{sample_name}_control_{ctrl_name}")
                     save_img_or_video(ctrl_video[0], ctrl_path, fps=args.fps)
                     logger.info(f"Saved control video to {ctrl_path}.mp4")
