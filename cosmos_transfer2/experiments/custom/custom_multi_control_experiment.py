@@ -454,7 +454,7 @@ custom_multi_control_post_train_small = dict(
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=50,
+                every_n=10,
                 is_x0=False,
                 is_ema=False,
                 num_sampling_step=35,
@@ -466,7 +466,7 @@ custom_multi_control_post_train_small = dict(
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=50,
+                every_n=10,
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
@@ -481,7 +481,7 @@ custom_multi_control_post_train_small = dict(
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0, 1],  # First 2 samples from test set
-                every_n=50,  # Evaluate every 50 iterations for testing
+                every_n=10,  # Evaluate every 10 iterations for testing
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
