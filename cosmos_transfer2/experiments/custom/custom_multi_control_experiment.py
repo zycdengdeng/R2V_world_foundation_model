@@ -303,7 +303,7 @@ custom_multi_control_post_train = dict(
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
-            # Sample generation for monitoring
+            # Sample generation for monitoring (no condition frames - pure control)
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
                 every_n=1000,
                 is_x0=False,
@@ -313,7 +313,8 @@ custom_multi_control_post_train = dict(
                 fps=10,
                 # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],
+                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                num_cond_frames=[0],  # Only no condition frames
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
@@ -325,7 +326,8 @@ custom_multi_control_post_train = dict(
                 fps=10,
                 # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],
+                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                num_cond_frames=[0],  # Only no condition frames
                 save_s3=False,
             ),
             # Evaluation on fixed test samples
@@ -454,6 +456,7 @@ custom_multi_control_post_train_small = dict(
             iter_speed=dict(hit_thres=50, every_n=50, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
+            # Sample generation for monitoring (no condition frames - pure control)
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
                 every_n=1,
                 is_x0=False,
@@ -463,7 +466,8 @@ custom_multi_control_post_train_small = dict(
                 fps=10,
                 # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],
+                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                num_cond_frames=[0],  # Only no condition frames
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
@@ -475,7 +479,8 @@ custom_multi_control_post_train_small = dict(
                 fps=10,
                 # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],
+                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                num_cond_frames=[0],  # Only no condition frames
                 save_s3=False,
             ),
             # Evaluation on fixed test samples
