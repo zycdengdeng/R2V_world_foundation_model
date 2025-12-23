@@ -321,12 +321,13 @@ class EveryNEvalMultiviewVideo(Callback):
         base_fp = f"{self.name}_Iter{iteration:09d}_{n_views}views"
 
         # Save 12-frame grid image
+        # Layout: rows = views (in h), cols = configs side by side across time
         _T = to_show.shape[3]
         n_frames = min(12, _T)
         frame_indices = [round(ix * (_T - 1) / (n_frames - 1)) for ix in range(n_frames)]
         to_show_frames = to_show[:, :, :, frame_indices]
-        # n=configs, b=batch, t=frames, h=V*H (views vertical), w=W
-        to_show_frames = rearrange(to_show_frames, "n b c t h w -> 1 c (n h) (b t w)")
+        # n=configs horizontal, b=batch, t=frames, h=V*H (views vertical), w=W
+        to_show_frames = rearrange(to_show_frames, "n b c t h w -> 1 c h (n b t w)")
 
         image_grid = torchvision.utils.make_grid(to_show_frames, nrow=1, padding=0, normalize=False)
 
@@ -334,16 +335,16 @@ class EveryNEvalMultiviewVideo(Callback):
         torchvision.utils.save_image(resize_image(image_grid, 1024), local_path_frames, nrow=1, scale_each=True)
 
         # Save video - views are already stacked vertically in h dimension
-        # Layout: rows = n configs stacked, cols = batch
-        video_tensor = rearrange(to_show, "n b c t h w -> t (n h) (b w) c")
+        # Layout: rows = views (in h), cols = configs side by side
+        video_tensor = rearrange(to_show, "n b c t h w -> t h (n b w) c")
 
-        # Resize if too wide
-        max_w = 2048
+        # Resize if dimensions exceed codec limits
+        max_dim = 4096  # libx264 max dimension
         T, H, W, C = video_tensor.shape
-        if W > max_w:
-            scale = max_w / W
-            new_w = max_w
+        if H > max_dim or W > max_dim:
+            scale = min(max_dim / H, max_dim / W)
             new_h = int(H * scale)
+            new_w = int(W * scale)
             video_tensor_f = video_tensor.permute(0, 3, 1, 2)
             video_tensor_f = F.interpolate(video_tensor_f, size=(new_h, new_w), mode="bilinear", align_corners=False)
             video_tensor = video_tensor_f.permute(0, 2, 3, 1)
