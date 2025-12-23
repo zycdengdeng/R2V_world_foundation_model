@@ -382,7 +382,7 @@ custom_multi_control_post_train_small = dict(
         name=f"2b_custom_multi_control_small_{RUN_TIMESTAMP}",  # Unique name with timestamp
     ),
     checkpoint=dict(
-        save_iter=100,  # Save every 100 iterations for testing
+        save_iter=50,  # Save every 50 iterations
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
         load_training_state=False,
         strict_resume=False,
@@ -458,7 +458,7 @@ custom_multi_control_post_train_small = dict(
             grad_clip=dict(clip_norm=0.1),
             # Sample generation for monitoring (no condition frames - pure control)
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=1,
+                every_n=50,
                 is_x0=False,
                 is_ema=False,
                 num_sampling_step=35,
@@ -471,7 +471,7 @@ custom_multi_control_post_train_small = dict(
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=1,
+                every_n=50,
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
@@ -487,7 +487,7 @@ custom_multi_control_post_train_small = dict(
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0],  # Use only 1 sample for faster testing
-                every_n=1,  # Run at iteration 1 for quick testing
+                every_n=50,  # Evaluate every 50 iterations
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
