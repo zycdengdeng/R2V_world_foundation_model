@@ -243,14 +243,14 @@ custom_multi_control_post_train = dict(
             # 3 control heads: hdmap (pre-trained at ch 0-15), blur (scratch), depth (scratch)
             # IMPORTANT: hdmap must be first to match pre-trained checkpoint weights at channels 0-15
             hint_keys="hdmap_blur_depth",
-            # Training configuration
-            min_num_conditional_frames_per_view=0,  # t2w mode
-            max_num_conditional_frames_per_view=2,  # i2w or v2v
+            # Training configuration - NO condition frames (pure control-based generation)
+            min_num_conditional_frames_per_view=0,
+            max_num_conditional_frames_per_view=0,  # Always 0 condition frames
             condition_locations=["first_random_n"],
             # NOTE: n_views must be <= NUM_GPUS due to context parallelism
             # Set to WORLD_SIZE to match the number of GPUs available
             train_sample_views_range=[WORLD_SIZE, WORLD_SIZE],
-            conditional_frames_probs={0: 0.5, 1: 0.25, 2: 0.25},
+            conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
             fsdp_shard_size=8,
@@ -402,11 +402,12 @@ custom_multi_control_post_train_small = dict(
         config=dict(
             # hdmap first to match pre-trained checkpoint weights at channels 0-15
             hint_keys="hdmap_blur_depth",
+            # NO condition frames - pure control-based generation
             min_num_conditional_frames_per_view=0,
-            max_num_conditional_frames_per_view=2,
+            max_num_conditional_frames_per_view=0,  # Always 0 condition frames
             condition_locations=["first_random_n"],
             train_sample_views_range=[WORLD_SIZE, WORLD_SIZE],
-            conditional_frames_probs={0: 0.5, 1: 0.25, 2: 0.25},
+            conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
             fsdp_shard_size=8,

@@ -251,16 +251,12 @@ class EveryNEvalMultiviewVideo(Callback):
 
         to_show = []
 
-        # Generate samples with 4 configurations (like training visualization):
-        # 1. No control (weight=0), no condition frame (cond=0)
-        # 2. No control (weight=0), with condition frame (cond=1)
-        # 3. With control (weight=1), no condition frame (cond=0)
-        # 4. With control (weight=1), with condition frame (cond=1)
+        # Generate samples with 2 configurations (no condition frames - pure control-based):
+        # 1. No control (weight=0), no condition frame - baseline
+        # 2. With control (weight=1), no condition frame - target use case
         eval_configs = [
-            (0, 0.0),   # (num_cond_frames, control_weight)
-            (1, 0.0),
-            (0, 1.0),
-            (1, 1.0),
+            (0, 0.0),   # (num_cond_frames, control_weight) - baseline
+            (0, 1.0),   # with control - target use case
         ]
 
         for num_cond_frames, control_weight in eval_configs:
@@ -303,17 +299,15 @@ class EveryNEvalMultiviewVideo(Callback):
 
         Layout (vertical views, horizontal configs):
         - Rows: 4 views stacked vertically per config
-        - Columns: different configs/GT/controls laid out horizontally by time
+        - Columns: different configs/GT/controls laid out horizontally
 
         Content order (left to right in video):
-        1. No ctrl, no cond (weight=0, cond=0)
-        2. No ctrl, cond=1 (weight=0, cond=1)
-        3. Ctrl, no cond (weight=1, cond=0)
-        4. Ctrl, cond=1 (weight=1, cond=1)
-        5. Ground Truth
-        6. HDMap control
-        7. Blur control
-        8. Depth control
+        1. No control (baseline) - weight=0, no cond frame
+        2. With control (target) - weight=1, no cond frame
+        3. Ground Truth
+        4. HDMap control
+        5. Blur control
+        6. Depth control
         """
         to_show = (1.0 + torch.stack(to_show, dim=0).clamp(-1, 1)) / 2.0  # [n, b, c, t, h, w]
         # h already contains V*H (views stacked vertically)
