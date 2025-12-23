@@ -455,7 +455,7 @@ custom_multi_control_post_train_small = dict(
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=10,
+                every_n=1,
                 is_x0=False,
                 is_ema=False,
                 num_sampling_step=35,
@@ -467,7 +467,7 @@ custom_multi_control_post_train_small = dict(
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=10,
+                every_n=1,
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
