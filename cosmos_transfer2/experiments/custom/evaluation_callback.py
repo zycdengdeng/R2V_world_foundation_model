@@ -224,30 +224,61 @@ class EveryNEvalMultiviewVideo(Callback):
 
             return rearrange(mv_video, "B C (V T) H W -> B C T H (V W)", V=n_views)
 
+        def time_to_height_dimension(mv_video):
+            """Rearrange multiview video with views stacked vertically."""
+            current_view_index_order = [i.item() for i in data_batch["view_indices_selection"][0]]
+            expected_view_index_order = visualization_view_index_order
+
+            # Reorder views to match expected visualization order
+            if current_view_index_order != expected_view_index_order:
+                reorder_indices = []
+                for expected_view in expected_view_index_order:
+                    if expected_view in current_view_index_order:
+                        reorder_indices.append(current_view_index_order.index(expected_view))
+
+                B, C, VT, H, W = mv_video.shape
+                T = VT // n_views
+                mv_video = rearrange(mv_video, "B C (V T) H W -> B C V T H W", V=n_views)
+                mv_video = mv_video[:, :, reorder_indices, :, :, :]
+                mv_video = rearrange(mv_video, "B C V T H W -> B C (V T) H W")
+
+            # Stack views vertically instead of horizontally
+            return rearrange(mv_video, "B C (V T) H W -> B C T (V H) W", V=n_views)
+
         # Clear GPU cache before sampling
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
         to_show = []
 
-        # Generate samples with different configurations
-        for num_cond_frames in self.num_cond_frames:
-            for control_weight in self.control_weights:
-                data_batch[NUM_CONDITIONAL_FRAMES_KEY] = num_cond_frames
-                data_batch[CONTROL_WEIGHT_KEY] = control_weight
+        # Generate samples with 4 configurations (like training visualization):
+        # 1. No control (weight=0), no condition frame (cond=0)
+        # 2. No control (weight=0), with condition frame (cond=1)
+        # 3. With control (weight=1), no condition frame (cond=0)
+        # 4. With control (weight=1), with condition frame (cond=1)
+        eval_configs = [
+            (0, 0.0),   # (num_cond_frames, control_weight)
+            (1, 0.0),
+            (0, 1.0),
+            (1, 1.0),
+        ]
 
-                for guidance in self.guidance:
-                    sample = model.generate_samples_from_batch(
-                        data_batch,
-                        guidance=guidance,
-                        state_shape=x0.shape[1:],
-                        n_sample=x0.shape[0],
-                        num_steps=self.num_sampling_step,
-                        is_negative_prompt=False,
-                    )
-                    if hasattr(model, "decode"):
-                        sample = model.decode(sample)
-                    to_show.append(sample.float().cpu())
+        for num_cond_frames, control_weight in eval_configs:
+            data_batch[NUM_CONDITIONAL_FRAMES_KEY] = num_cond_frames
+            data_batch[CONTROL_WEIGHT_KEY] = control_weight
+
+            for guidance in self.guidance:
+                sample = model.generate_samples_from_batch(
+                    data_batch,
+                    guidance=guidance,
+                    state_shape=x0.shape[1:],
+                    n_sample=x0.shape[0],
+                    num_steps=self.num_sampling_step,
+                    is_negative_prompt=False,
+                )
+                if hasattr(model, "decode"):
+                    sample = model.decode(sample)
+                to_show.append(sample.float().cpu())
 
         # Add ground truth
         to_show.append(raw_data.float().cpu())
@@ -259,17 +290,33 @@ class EveryNEvalMultiviewVideo(Callback):
                     hint = data_batch[key]
                     to_show.append(hint.float().cpu())
 
-        # Rearrange for visualization (views side by side)
+        # Rearrange for visualization (views stacked vertically)
         if n_views > 1:
-            to_show = [time_to_width_dimension(t) for t in to_show]
+            to_show = [time_to_height_dimension(t) for t in to_show]
 
         # Save outputs
         if is_tp_cp_pp_rank0():
             self._save_outputs(to_show, batch_size, n_views, iteration)
 
     def _save_outputs(self, to_show: List[torch.Tensor], batch_size: int, n_views: int, iteration: int):
-        """Save visualization outputs."""
+        """Save visualization outputs.
+
+        Layout (vertical views, horizontal configs):
+        - Rows: 4 views stacked vertically per config
+        - Columns: different configs/GT/controls laid out horizontally by time
+
+        Content order (left to right in video):
+        1. No ctrl, no cond (weight=0, cond=0)
+        2. No ctrl, cond=1 (weight=0, cond=1)
+        3. Ctrl, no cond (weight=1, cond=0)
+        4. Ctrl, cond=1 (weight=1, cond=1)
+        5. Ground Truth
+        6. HDMap control
+        7. Blur control
+        8. Depth control
+        """
         to_show = (1.0 + torch.stack(to_show, dim=0).clamp(-1, 1)) / 2.0  # [n, b, c, t, h, w]
+        # h already contains V*H (views stacked vertically)
 
         base_fp = f"{self.name}_Iter{iteration:09d}_{n_views}views"
 
@@ -278,6 +325,7 @@ class EveryNEvalMultiviewVideo(Callback):
         n_frames = min(12, _T)
         frame_indices = [round(ix * (_T - 1) / (n_frames - 1)) for ix in range(n_frames)]
         to_show_frames = to_show[:, :, :, frame_indices]
+        # n=configs, b=batch, t=frames, h=V*H (views vertical), w=W
         to_show_frames = rearrange(to_show_frames, "n b c t h w -> 1 c (n h) (b t w)")
 
         image_grid = torchvision.utils.make_grid(to_show_frames, nrow=1, padding=0, normalize=False)
@@ -285,8 +333,9 @@ class EveryNEvalMultiviewVideo(Callback):
         local_path_frames = f"{self.local_dir}/{base_fp}_frames.jpg"
         torchvision.utils.save_image(resize_image(image_grid, 1024), local_path_frames, nrow=1, scale_each=True)
 
-        # Save video
-        video_tensor = rearrange(to_show, "n b c t h (v w) -> t (n h) (b v w) c", v=n_views)
+        # Save video - views are already stacked vertically in h dimension
+        # Layout: rows = n configs stacked, cols = batch
+        video_tensor = rearrange(to_show, "n b c t h w -> t (n h) (b w) c")
 
         # Resize if too wide
         max_w = 2048
