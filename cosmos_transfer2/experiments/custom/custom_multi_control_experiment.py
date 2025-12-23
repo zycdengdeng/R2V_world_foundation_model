@@ -480,8 +480,8 @@ custom_multi_control_post_train_small = dict(
             # Evaluation on fixed test samples
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0, 1],  # First 2 samples from test set
-                every_n=10,  # Evaluate every 10 iterations for testing
+                eval_sample_indices=[0],  # Use only 1 sample for faster testing
+                every_n=1,  # Run at iteration 1 for quick testing
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
