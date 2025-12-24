@@ -225,12 +225,9 @@ class EveryNEvalMultiviewVideo(Callback):
 
             sample_results = []
 
-            # Generate samples with 2 configurations (no condition frames - pure control-based):
-            # 1. No control (weight=0), no condition frame - baseline
-            # 2. With control (weight=1), no condition frame - target use case
+            # Generate samples with control (no condition frames - pure control-based)
             eval_configs = [
-                (0, 0.0),   # baseline
-                (0, 1.0),   # with control
+                (0, 1.0),   # with control only
             ]
 
             for num_cond_frames, control_weight in eval_configs:
@@ -288,17 +285,16 @@ class EveryNEvalMultiviewVideo(Callback):
     def _save_outputs(self, to_show: List[torch.Tensor], batch_size: int, n_views: int, iteration: int):
         """Save visualization outputs.
 
-        Layout (vertical views, horizontal configs):
-        - Rows: 4 views stacked vertically per config
-        - Columns: different configs/GT/controls laid out horizontally
+        Layout (vertical views, horizontal samples):
+        - Rows: 4 views stacked vertically per sample
+        - Columns: different samples laid out horizontally
 
-        Content order (left to right in video):
-        1. No control (baseline) - weight=0, no cond frame
-        2. With control (target) - weight=1, no cond frame
-        3. Ground Truth
-        4. HDMap control
-        5. Blur control
-        6. Depth control
+        Content order (top to bottom per column):
+        1. Generated with control (weight=1, no cond frame)
+        2. Ground Truth
+        3. HDMap control
+        4. Blur control
+        5. Depth control
         """
         to_show = (1.0 + torch.stack(to_show, dim=0).clamp(-1, 1)) / 2.0  # [n, b, c, t, h, w]
         # h already contains V*H (views stacked vertically)
