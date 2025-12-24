@@ -102,7 +102,7 @@ def load_sparse_from_dataset(data_root, target_height=128, target_width=256, num
     return None
 
 
-def create_test_inputs(normal_image_path, sparse_data_path=None,
+def create_test_inputs(normal_image_path, sparse_image_path=None,
                        target_height=128, target_width=256, num_frames=5):
     """Create test inputs including real data."""
 
@@ -120,23 +120,19 @@ def create_test_inputs(normal_image_path, sparse_data_path=None,
         print(f"  WARNING: Normal image not found: {normal_image_path}")
         inputs["real_image"] = torch.rand(shape) * 2 - 1
 
-    # 3. Try to load sparse data from dataset
-    if sparse_data_path and os.path.exists(sparse_data_path):
-        sparse = load_sparse_from_dataset(sparse_data_path, target_height, target_width, num_frames)
-        if sparse is not None:
-            inputs["real_sparse"] = sparse
+    # 3. Load real sparse LiDAR image
+    if sparse_image_path and os.path.exists(sparse_image_path):
+        print(f"  Loading real sparse image: {sparse_image_path}")
+        inputs["real_sparse"] = load_real_image(sparse_image_path, target_height, target_width, num_frames)
+    else:
+        if sparse_image_path:
+            print(f"  WARNING: Sparse image not found: {sparse_image_path}")
 
-    # 4. Create synthetic sparse (1% points)
+    # 4. Create synthetic sparse (1% points) for comparison
     sparse = torch.zeros(shape)
     mask = torch.rand(shape) < 0.01
     sparse[mask] = torch.rand(mask.sum()) * 2 - 1
     inputs["synthetic_sparse_1pct"] = sparse
-
-    # 5. Create very sparse (0.1% points)
-    very_sparse = torch.zeros(shape)
-    mask = torch.rand(shape) < 0.001
-    very_sparse[mask] = torch.rand(mask.sum()) * 2 - 1
-    inputs["synthetic_sparse_0.1pct"] = very_sparse
 
     return inputs
 
@@ -231,33 +227,37 @@ def visualize_comparison(inputs, latents, save_dir):
     plt.close()
     print(f"  Saved: {save_dir / 'comparison_all.png'}")
 
-    # Create a focused comparison: zeros vs real_image
-    if 'real_image' in inputs:
-        fig, axes = plt.subplots(2, 6, figsize=(24, 8))
-        fig.suptitle("Comparison: Zero Input vs Real Image", fontsize=16)
+    # Create a focused comparison: zeros vs real_image vs real_sparse
+    compare_keys = ['zeros', 'real_image']
+    if 'real_sparse' in inputs:
+        compare_keys.append('real_sparse')
 
-        for row, name in enumerate(['zeros', 'real_image']):
-            input_np = inputs[name][0, :, frame_idx].cpu().numpy()
-            rgb = (input_np.transpose(1, 2, 0) + 1) / 2
-            axes[row, 0].imshow(np.clip(rgb, 0, 1))
-            axes[row, 0].set_title(f"Input: {name}")
-            axes[row, 0].axis('off')
+    n_rows = len(compare_keys)
+    fig, axes = plt.subplots(n_rows, 6, figsize=(24, 4 * n_rows))
+    fig.suptitle("Comparison: Zero vs Real Image vs Real Sparse LiDAR", fontsize=16)
 
-            non_zero_mask = (inputs[name][0, :, frame_idx].abs() > 0.01).any(dim=0).cpu().numpy()
-            axes[row, 1].imshow(non_zero_mask, cmap='gray')
-            axes[row, 1].set_title(f"Non-zero: {non_zero_mask.mean()*100:.1f}%")
-            axes[row, 1].axis('off')
+    for row, name in enumerate(compare_keys):
+        input_np = inputs[name][0, :, frame_idx].cpu().numpy()
+        rgb = (input_np.transpose(1, 2, 0) + 1) / 2
+        axes[row, 0].imshow(np.clip(rgb, 0, 1))
+        axes[row, 0].set_title(f"Input: {name}")
+        axes[row, 0].axis('off')
 
-            latent_np = latents[name][0, :, frame_idx].cpu().numpy()
-            for i in range(4):
-                im = axes[row, 2+i].imshow(latent_np[i], cmap='RdBu', vmin=-2, vmax=2)
-                axes[row, 2+i].set_title(f"Latent Ch{i}: {latent_np[i].mean():.2f}")
-                axes[row, 2+i].axis('off')
+        non_zero_mask = (inputs[name][0, :, frame_idx].abs() > 0.01).any(dim=0).cpu().numpy()
+        axes[row, 1].imshow(non_zero_mask, cmap='gray')
+        axes[row, 1].set_title(f"Non-zero: {non_zero_mask.mean()*100:.1f}%")
+        axes[row, 1].axis('off')
 
-        plt.tight_layout()
-        plt.savefig(save_dir / "comparison_zeros_vs_real.png", dpi=150, bbox_inches='tight')
-        plt.close()
-        print(f"  Saved: {save_dir / 'comparison_zeros_vs_real.png'}")
+        latent_np = latents[name][0, :, frame_idx].cpu().numpy()
+        for i in range(4):
+            im = axes[row, 2+i].imshow(latent_np[i], cmap='RdBu', vmin=-2, vmax=2)
+            axes[row, 2+i].set_title(f"Latent Ch{i}: {latent_np[i].mean():.2f}")
+            axes[row, 2+i].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(save_dir / "comparison_zeros_vs_real_vs_sparse.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved: {save_dir / 'comparison_zeros_vs_real_vs_sparse.png'}")
 
 
 def main():
@@ -277,8 +277,8 @@ def main():
     # Normal image path (provided by user)
     NORMAL_IMAGE_PATH = "/mnt/zihanw/R2V_world_foundation_model_zz/rgborg.png"
 
-    # Optional: path to sparse data from dataset
-    SPARSE_DATA_PATH = None  # Set this if you want to load real sparse data
+    # Real sparse LiDAR data image path
+    SPARSE_IMAGE_PATH = "/mnt/zihanw/encoder_analysis/rgbsparse.png"
 
     # Output directory
     SAVE_DIR = "/mnt/zihanw/encoder_analysis"
@@ -308,7 +308,7 @@ def main():
 
     inputs = create_test_inputs(
         normal_image_path=NORMAL_IMAGE_PATH,
-        sparse_data_path=SPARSE_DATA_PATH,
+        sparse_image_path=SPARSE_IMAGE_PATH,
         target_height=test_height,
         target_width=test_width,
         num_frames=num_frames,
