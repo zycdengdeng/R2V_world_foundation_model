@@ -450,7 +450,11 @@ def compute_text_embeddings_online_multiview(
         else data_batch["num_video_frames_per_view"]
     )
     if isinstance(num_video_frames_per_view, torch.Tensor):
-        num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
+        # Handle both single-element and multi-element tensors (all samples have same frame count)
+        if num_video_frames_per_view.numel() > 1:
+            num_video_frames_per_view = int(num_video_frames_per_view[0].cpu().item())
+        else:
+            num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
     n_views = data_batch[model.input_data_key].shape[2] // num_video_frames_per_view
     assert len(captions) == 1 or len(captions) == n_views, f"Expected 1 or {n_views} captions, got {len(captions)}"
     if len(captions) == 1:
