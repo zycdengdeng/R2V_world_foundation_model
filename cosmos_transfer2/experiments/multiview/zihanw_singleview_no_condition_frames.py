@@ -48,6 +48,7 @@ from cosmos_transfer2._src.predict2_multiview.datasets.multiview import (
     DEFAULT_CAMERAS,
     collate_fn,
 )
+from cosmos_transfer2._src.transfer2.configs.vid2vid_transfer.defaults.callbacks import LoadBaseModel
 from cosmos_transfer2.multiview_config import DEFAULT_CHECKPOINT
 
 # Import the dataset class and camera definitions
@@ -158,10 +159,12 @@ zihanw_singleview_no_condition_frames = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Load from Transfer2.5 multiview checkpoint (has base model + hdmap_bbox)
-        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
-        load_training_state=False,  # Don't load optimizer state
-        strict_resume=False,  # Allow missing keys (blur/depth heads will be random initialized)
+        # Don't load via checkpointer - use base_load_from instead
+        # The checkpointer expects training checkpoint format, but HuggingFace
+        # exports are in inference format. Use model's load_base_model() method.
+        load_path="",
+        load_training_state=False,
+        strict_resume=False,
         load_from_object_store=dict(
             enabled=False,
         ),
@@ -176,7 +179,14 @@ zihanw_singleview_no_condition_frames = dict(
             # blur: channels 16-31, train from scratch
             # depth: channels 32-47, train from scratch
             hint_keys="hdmap_blur_depth",
-            base_load_from=None,
+            # Load pretrained weights via load_base_model() callback
+            # The load_base_model_callbacks is inherited from base experiment
+            # This loads the full Transfer2.5 multiview checkpoint which includes:
+            # - Base model (text-to-video capability)
+            # - hdmap_bbox control head pretrained weights
+            base_load_from=dict(
+                load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
+            ),
             # state_t=8 for 29 frames
             state_t=8,
             # Single view training
@@ -196,6 +206,10 @@ zihanw_singleview_no_condition_frames = dict(
         run_validation=False,  # Disable validation initially
         validation_iter=200,
         callbacks=dict(
+            # IMPORTANT: Load pretrained weights via LoadBaseModel callback
+            # This runs on_train_start and calls model.load_base_model()
+            # which loads from base_load_from["load_path"]
+            load_base_model=L(LoadBaseModel)(),
             heart_beat=dict(
                 save_s3=False,
             ),
