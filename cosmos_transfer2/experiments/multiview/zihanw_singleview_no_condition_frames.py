@@ -151,8 +151,8 @@ zihanw_singleview_no_condition_frames = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Fresh start - no checkpoint loading
-        load_path=None,
+        # Fresh start - no checkpoint loading (empty string means no load)
+        load_path="",
         load_training_state=False,
         strict_resume=False,
         load_from_object_store=dict(
