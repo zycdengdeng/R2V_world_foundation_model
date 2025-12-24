@@ -98,13 +98,26 @@ class EveryNEvalMultiviewVideo(Callback):
         self.rank = 0
         self.data_parallel_id = 0
 
-    def _load_eval_batch(self, model) -> Dict[str, Any]:
-        """Load fixed evaluation batch from test dataset."""
+    def _load_eval_samples(self, model) -> List[Dict[str, Any]]:
+        """Load fixed evaluation samples from test dataset (one sample at a time)."""
+        from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
+        device = model.tensor_kwargs.get('device', 'cuda')
+        uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
+
         samples = []
         for idx in self.eval_sample_indices:
             if idx < len(self.eval_dataset):
                 sample = self.eval_dataset[idx]
-                samples.append(sample)
+                # Collate single sample into batch format
+                batch = collate_fn([sample])
+                # Move to device
+                for key, value in batch.items():
+                    if isinstance(value, torch.Tensor):
+                        if key in uint8_keys:
+                            batch[key] = value.to(device=device)
+                        else:
+                            batch[key] = value.to(**model.tensor_kwargs)
+                samples.append(batch)
             else:
                 log.warning(f"Eval sample index {idx} out of range, dataset has {len(self.eval_dataset)} samples")
 
@@ -112,27 +125,7 @@ class EveryNEvalMultiviewVideo(Callback):
             log.error("No valid evaluation samples found!")
             return None
 
-        # Collate samples into a batch
-        from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
-        batch = collate_fn(samples)
-
-        # Move to device, but keep video/control data as uint8
-        # The model's _normalize_video_databatch_inplace expects uint8 format
-        device = model.tensor_kwargs.get('device', 'cuda')
-
-        # Keys that should remain uint8 (video and control inputs)
-        uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
-
-        for key, value in batch.items():
-            if isinstance(value, torch.Tensor):
-                if key in uint8_keys:
-                    # Keep uint8, only move to device
-                    batch[key] = value.to(device=device)
-                else:
-                    # Apply full tensor_kwargs (device + dtype)
-                    batch[key] = value.to(**model.tensor_kwargs)
-
-        return batch
+        return samples
 
     def on_train_start(self, model, iteration: int = 0) -> None:
         """Initialize on training start."""
@@ -184,111 +177,109 @@ class EveryNEvalMultiviewVideo(Callback):
     @torch.no_grad()
     def _run_evaluation(self, trainer, model, iteration: int):
         """Run inference on fixed test samples and save videos."""
-        # Load eval batch if not already loaded
+        # Load eval samples if not already loaded
         if self.eval_batch is None:
-            self.eval_batch = self._load_eval_batch(model)
+            self.eval_batch = self._load_eval_samples(model)
             if self.eval_batch is None:
                 return
-
-        # Make a copy of the batch to avoid modifying the cached version
-        data_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v
-                      for k, v in self.eval_batch.items()}
-
-        n_views = len(data_batch["view_indices_selection"][0])
-
-        # Compute text embeddings online (same as training)
-        if hasattr(model, 'inplace_compute_text_embeddings_online'):
-            model.inplace_compute_text_embeddings_online(data_batch)
-
-        # Get raw data and condition
-        raw_data, x0, condition = model.get_data_and_condition(data_batch)
-        batch_size = x0.shape[0]
-
-        def time_to_width_dimension(mv_video):
-            """Rearrange multiview video for visualization."""
-            current_view_index_order = [i.item() for i in data_batch["view_indices_selection"][0]]
-            expected_view_index_order = visualization_view_index_order
-
-            # Reorder views to match expected visualization order
-            if current_view_index_order != expected_view_index_order:
-                reorder_indices = []
-                for expected_view in expected_view_index_order:
-                    if expected_view in current_view_index_order:
-                        reorder_indices.append(current_view_index_order.index(expected_view))
-
-                B, C, VT, H, W = mv_video.shape
-                T = VT // n_views
-                mv_video = rearrange(mv_video, "B C (V T) H W -> B C V T H W", V=n_views)
-                mv_video = mv_video[:, :, reorder_indices, :, :, :]
-                mv_video = rearrange(mv_video, "B C V T H W -> B C (V T) H W")
-
-            return rearrange(mv_video, "B C (V T) H W -> B C T H (V W)", V=n_views)
-
-        def time_to_height_dimension(mv_video):
-            """Rearrange multiview video with views stacked vertically."""
-            current_view_index_order = [i.item() for i in data_batch["view_indices_selection"][0]]
-            expected_view_index_order = visualization_view_index_order
-
-            # Reorder views to match expected visualization order
-            if current_view_index_order != expected_view_index_order:
-                reorder_indices = []
-                for expected_view in expected_view_index_order:
-                    if expected_view in current_view_index_order:
-                        reorder_indices.append(current_view_index_order.index(expected_view))
-
-                B, C, VT, H, W = mv_video.shape
-                T = VT // n_views
-                mv_video = rearrange(mv_video, "B C (V T) H W -> B C V T H W", V=n_views)
-                mv_video = mv_video[:, :, reorder_indices, :, :, :]
-                mv_video = rearrange(mv_video, "B C V T H W -> B C (V T) H W")
-
-            # Stack views vertically instead of horizontally
-            return rearrange(mv_video, "B C (V T) H W -> B C T (V H) W", V=n_views)
 
         # Clear GPU cache before sampling
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+        # Process each sample individually and collect results
+        all_results = []  # List of results per sample
+
+        for sample_idx, eval_sample in enumerate(self.eval_batch):
+            # Make a copy of the sample to avoid modifying cached version
+            data_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v
+                          for k, v in eval_sample.items()}
+
+            n_views = len(data_batch["view_indices_selection"][0])
+
+            # Compute text embeddings online (same as training)
+            if hasattr(model, 'inplace_compute_text_embeddings_online'):
+                model.inplace_compute_text_embeddings_online(data_batch)
+
+            # Get raw data and condition
+            raw_data, x0, condition = model.get_data_and_condition(data_batch)
+
+            def time_to_height_dimension(mv_video):
+                """Rearrange multiview video with views stacked vertically."""
+                current_view_index_order = [i.item() for i in data_batch["view_indices_selection"][0]]
+                expected_view_index_order = visualization_view_index_order
+
+                if current_view_index_order != expected_view_index_order:
+                    reorder_indices = []
+                    for expected_view in expected_view_index_order:
+                        if expected_view in current_view_index_order:
+                            reorder_indices.append(current_view_index_order.index(expected_view))
+
+                    B, C, VT, H, W = mv_video.shape
+                    T = VT // n_views
+                    mv_video = rearrange(mv_video, "B C (V T) H W -> B C V T H W", V=n_views)
+                    mv_video = mv_video[:, :, reorder_indices, :, :, :]
+                    mv_video = rearrange(mv_video, "B C V T H W -> B C (V T) H W")
+
+                return rearrange(mv_video, "B C (V T) H W -> B C T (V H) W", V=n_views)
+
+            sample_results = []
+
+            # Generate samples with 2 configurations (no condition frames - pure control-based):
+            # 1. No control (weight=0), no condition frame - baseline
+            # 2. With control (weight=1), no condition frame - target use case
+            eval_configs = [
+                (0, 0.0),   # baseline
+                (0, 1.0),   # with control
+            ]
+
+            for num_cond_frames, control_weight in eval_configs:
+                data_batch[NUM_CONDITIONAL_FRAMES_KEY] = num_cond_frames
+                data_batch[CONTROL_WEIGHT_KEY] = control_weight
+
+                for guidance in self.guidance:
+                    sample = model.generate_samples_from_batch(
+                        data_batch,
+                        guidance=guidance,
+                        state_shape=x0.shape[1:],
+                        n_sample=x0.shape[0],
+                        num_steps=self.num_sampling_step,
+                        is_negative_prompt=False,
+                    )
+                    if hasattr(model, "decode"):
+                        sample = model.decode(sample)
+                    sample_results.append(sample.float().cpu())
+
+            # Add ground truth
+            sample_results.append(raw_data.float().cpu())
+
+            # Add control inputs visualization
+            if self.ctrl_hint_keys:
+                for key in self.ctrl_hint_keys:
+                    if key in data_batch and data_batch[key] is not None:
+                        hint = data_batch[key]
+                        sample_results.append(hint.float().cpu())
+
+            # Rearrange for visualization (views stacked vertically)
+            if n_views > 1:
+                sample_results = [time_to_height_dimension(t) for t in sample_results]
+
+            all_results.append(sample_results)
+
+            # Clear GPU cache between samples
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        # Combine results from all samples
+        # all_results: List[List[Tensor]] - [num_samples][num_configs] each tensor is [1, C, T, H, W]
+        # We want to concatenate along batch dimension
+        num_configs = len(all_results[0])
         to_show = []
+        for config_idx in range(num_configs):
+            combined = torch.cat([all_results[sample_idx][config_idx] for sample_idx in range(len(all_results))], dim=0)
+            to_show.append(combined)
 
-        # Generate samples with 2 configurations (no condition frames - pure control-based):
-        # 1. No control (weight=0), no condition frame - baseline
-        # 2. With control (weight=1), no condition frame - target use case
-        eval_configs = [
-            (0, 0.0),   # (num_cond_frames, control_weight) - baseline
-            (0, 1.0),   # with control - target use case
-        ]
-
-        for num_cond_frames, control_weight in eval_configs:
-            data_batch[NUM_CONDITIONAL_FRAMES_KEY] = num_cond_frames
-            data_batch[CONTROL_WEIGHT_KEY] = control_weight
-
-            for guidance in self.guidance:
-                sample = model.generate_samples_from_batch(
-                    data_batch,
-                    guidance=guidance,
-                    state_shape=x0.shape[1:],
-                    n_sample=x0.shape[0],
-                    num_steps=self.num_sampling_step,
-                    is_negative_prompt=False,
-                )
-                if hasattr(model, "decode"):
-                    sample = model.decode(sample)
-                to_show.append(sample.float().cpu())
-
-        # Add ground truth
-        to_show.append(raw_data.float().cpu())
-
-        # Add control inputs visualization
-        if self.ctrl_hint_keys:
-            for key in self.ctrl_hint_keys:
-                if key in data_batch and data_batch[key] is not None:
-                    hint = data_batch[key]
-                    to_show.append(hint.float().cpu())
-
-        # Rearrange for visualization (views stacked vertically)
-        if n_views > 1:
-            to_show = [time_to_height_dimension(t) for t in to_show]
+        batch_size = len(all_results)
 
         # Save outputs
         if is_tp_cp_pp_rank0():
