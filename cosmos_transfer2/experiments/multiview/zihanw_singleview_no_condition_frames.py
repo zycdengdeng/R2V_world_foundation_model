@@ -42,6 +42,7 @@ import torch.distributed as dist
 from hydra.core.config_store import ConfigStore
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
+from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_generic_dataloader, get_sampler
 from cosmos_transfer2._src.predict2_multiview.datasets.multiview import (
     DEFAULT_CAMERAS,
@@ -53,6 +54,12 @@ from cosmos_transfer2.multiview_config import DEFAULT_CHECKPOINT
 from cosmos_transfer2.experiments.multiview.zihanw_multicontrol_dataloader import (
     MultiControlMultiviewDataset,
 )
+
+# Get the Transfer2.5 multiview checkpoint (has hdmap_bbox pretrained)
+# This checkpoint has:
+# - Base model (text-to-video capability)
+# - hdmap_bbox control head (channels 0-15)
+TRANSFER2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a")
 
 
 # Single camera for single-view training (front camera only)
@@ -151,10 +158,10 @@ zihanw_singleview_no_condition_frames = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Fresh start - no checkpoint loading (empty string means no load)
-        load_path="",
-        load_training_state=False,
-        strict_resume=False,
+        # Load from Transfer2.5 multiview checkpoint (has base model + hdmap_bbox)
+        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
+        load_training_state=False,  # Don't load optimizer state
+        strict_resume=False,  # Allow missing keys (blur/depth heads will be random initialized)
         load_from_object_store=dict(
             enabled=False,
         ),
@@ -164,8 +171,11 @@ zihanw_singleview_no_condition_frames = dict(
     ),
     model=dict(
         config=dict(
-            # Multiple control inputs: blur + depth + hdmap_bbox
-            hint_keys="blur_depth_hdmap_bbox",
+            # Multiple control inputs - ORDER MATTERS for pretrained weights!
+            # hdmap: channels 0-15, uses pretrained weights from Transfer2.5
+            # blur: channels 16-31, train from scratch
+            # depth: channels 32-47, train from scratch
+            hint_keys="hdmap_blur_depth",
             base_load_from=None,
             # state_t=8 for 29 frames
             state_t=8,
@@ -199,12 +209,14 @@ zihanw_singleview_no_condition_frames = dict(
             every_n_sample_reg=dict(
                 every_n=200,
                 save_s3=False,
-                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
+                # Order must match hint_keys: hdmap first, then blur, depth
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
             ),
             every_n_sample_ema=dict(
                 every_n=200,
                 save_s3=False,
-                ctrl_hint_keys=["control_input_blur", "control_input_depth", "control_input_hdmap_bbox"],
+                # Order must match hint_keys: hdmap first, then blur, depth
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
             ),
             wandb=dict(
                 save_s3=False,
