@@ -184,7 +184,10 @@ class MultiviewVid2VidModelRectifiedFlow(Video2WorldModelRectifiedFlow):
             else data_batch["num_video_frames_per_view"]
         )
         if isinstance(num_video_frames_per_view, torch.Tensor):
-            num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
+            if num_video_frames_per_view.numel() > 1:
+                num_video_frames_per_view = int(num_video_frames_per_view[0].cpu().item())
+            else:
+                num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
         n_views = data_batch[input_key].shape[2] // num_video_frames_per_view
         if input_key in data_batch:
             data_batch[input_key] = rearrange(data_batch[input_key], "B C (V T) H W -> (B V) C T H W", V=n_views)
@@ -341,7 +344,10 @@ def compute_text_embeddings_online_multiview_single_caption(
         else data_batch["num_video_frames_per_view"]
     )
     if isinstance(num_video_frames_per_view, torch.Tensor):
-        num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
+        if num_video_frames_per_view.numel() > 1:
+            num_video_frames_per_view = int(num_video_frames_per_view[0].cpu().item())
+        else:
+            num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
     n_views = data_batch[model.input_data_key].shape[2] // num_video_frames_per_view
     B, _, _, _, _ = data_batch[model.input_data_key].shape
 
@@ -392,7 +398,11 @@ def compute_text_embeddings_online_multiview_multiple_captions(
         else data_batch["num_video_frames_per_view"]
     )
     if isinstance(num_video_frames_per_view, torch.Tensor):
-        num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
+        # Handle both single-element and multi-element tensors (all samples have same frame count)
+        if num_video_frames_per_view.numel() > 1:
+            num_video_frames_per_view = int(num_video_frames_per_view[0].cpu().item())
+        else:
+            num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
     n_views = data_batch[model.input_data_key].shape[2] // num_video_frames_per_view
     B, _, _, _, _ = data_batch[model.input_data_key].shape
 
