@@ -486,14 +486,14 @@ custom_multi_control_post_train_small = dict(
             # Evaluation on fixed test samples
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0],  # Use only 1 sample for faster testing
-                every_n=50,  # Evaluate every 50 iterations
+                eval_sample_indices=[0, 1, 2, 3],  # 4 samples for evaluation
+                every_n=1,  # Run at iteration 1 for testing
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
                 control_weights=[1.0],
-                num_cond_frames=[1],
+                num_cond_frames=[0],  # No condition frames
                 save_local=True,
                 name="eval_test",
             ),
