@@ -272,10 +272,7 @@ def main():
 
     tokenizer = Wan2pt1VAEInterface(
         chunk_duration=81,
-        load_mean_std=True,
-        # Use default S3 path for VAE weights
-        vae_pth="s3://bucket/cosmos_diffusion_v2/pretrain_weights/tokenizer/wan2pt1/Wan2.1_VAE.pth",
-        s3_credential_path="credentials/s3_training.secret",
+        load_mean_std=False,  # Don't need mean/std for this test
         temporal_window=4,
         is_parallel=False,
     )
