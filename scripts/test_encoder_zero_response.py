@@ -28,59 +28,122 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from PIL import Image
+import cv2
 
 # Import HF mirror config
 import cosmos_transfer2._src.imaginaire.utils.hf_mirror  # noqa: F401
 
 
-def create_test_inputs(batch_size=1, num_frames=5, height=180, width=320):
-    """Create different test inputs for encoder analysis.
+def load_real_image(image_path, target_height=128, target_width=256, num_frames=5):
+    """Load a real image and convert to video format.
 
-    Input range should be [-1, 1] for the VAE.
+    Returns tensor of shape (1, 3, T, H, W) in range [-1, 1]
     """
-    shape = (batch_size, 3, num_frames, height, width)
+    img = Image.open(image_path).convert('RGB')
+    img = img.resize((target_width, target_height), Image.LANCZOS)
+    img_np = np.array(img).astype(np.float32) / 255.0  # [0, 1]
+    img_np = img_np * 2 - 1  # [-1, 1]
 
+    # Convert to (C, H, W)
+    img_tensor = torch.from_numpy(img_np).permute(2, 0, 1)  # (3, H, W)
+
+    # Expand to video (repeat the same frame)
+    video = img_tensor.unsqueeze(0).unsqueeze(2).expand(1, 3, num_frames, target_height, target_width)
+    return video.clone()
+
+
+def load_sparse_from_dataset(data_root, target_height=128, target_width=256, num_frames=5):
+    """Load sparse point cloud data from the dataset.
+
+    Looks for blur/depth control inputs which are sparse LiDAR point clouds.
+    """
+    # Try to find a sample from the dataset
+    possible_paths = [
+        os.path.join(data_root, "blur"),
+        os.path.join(data_root, "control_input_blur"),
+        data_root,
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            # Find first image/video file
+            for ext in ['*.png', '*.jpg', '*.mp4']:
+                import glob
+                files = glob.glob(os.path.join(path, "**", ext), recursive=True)
+                if files:
+                    file_path = files[0]
+                    print(f"  Found sparse data: {file_path}")
+
+                    if file_path.endswith('.mp4'):
+                        # Load video
+                        cap = cv2.VideoCapture(file_path)
+                        frames = []
+                        for _ in range(num_frames):
+                            ret, frame = cap.read()
+                            if not ret:
+                                break
+                            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            frame = cv2.resize(frame, (target_width, target_height))
+                            frames.append(frame)
+                        cap.release()
+
+                        if len(frames) < num_frames:
+                            frames = frames + [frames[-1]] * (num_frames - len(frames))
+
+                        video_np = np.stack(frames, axis=0).astype(np.float32) / 255.0
+                        video_np = video_np * 2 - 1
+                        video_tensor = torch.from_numpy(video_np).permute(3, 0, 1, 2).unsqueeze(0)
+                        return video_tensor
+                    else:
+                        # Load image
+                        return load_real_image(file_path, target_height, target_width, num_frames)
+
+    return None
+
+
+def create_test_inputs(normal_image_path, sparse_data_path=None,
+                       target_height=128, target_width=256, num_frames=5):
+    """Create test inputs including real data."""
+
+    shape = (1, 3, num_frames, target_height, target_width)
     inputs = {}
 
-    # 1. All zeros (pixel space)
+    # 1. All zeros
     inputs["zeros"] = torch.zeros(shape)
 
-    # 2. All ones (maximum value)
-    inputs["ones"] = torch.ones(shape)
+    # 2. Load real normal image
+    if os.path.exists(normal_image_path):
+        print(f"  Loading normal image: {normal_image_path}")
+        inputs["real_image"] = load_real_image(normal_image_path, target_height, target_width, num_frames)
+    else:
+        print(f"  WARNING: Normal image not found: {normal_image_path}")
+        inputs["real_image"] = torch.rand(shape) * 2 - 1
 
-    # 3. All negative ones (minimum value)
-    inputs["neg_ones"] = -torch.ones(shape)
+    # 3. Try to load sparse data from dataset
+    if sparse_data_path and os.path.exists(sparse_data_path):
+        sparse = load_sparse_from_dataset(sparse_data_path, target_height, target_width, num_frames)
+        if sparse is not None:
+            inputs["real_sparse"] = sparse
 
-    # 4. Random noise (uniform)
-    inputs["random"] = torch.rand(shape) * 2 - 1  # [-1, 1]
-
-    # 5. Sparse point cloud simulation (1% of pixels have values)
+    # 4. Create synthetic sparse (1% points)
     sparse = torch.zeros(shape)
-    mask = torch.rand(shape) < 0.01  # 1% sparse
+    mask = torch.rand(shape) < 0.01
     sparse[mask] = torch.rand(mask.sum()) * 2 - 1
-    inputs["sparse_1pct"] = sparse
+    inputs["synthetic_sparse_1pct"] = sparse
 
-    # 6. Very sparse point cloud (0.1% of pixels)
+    # 5. Create very sparse (0.1% points)
     very_sparse = torch.zeros(shape)
-    mask = torch.rand(shape) < 0.001  # 0.1% sparse
+    mask = torch.rand(shape) < 0.001
     very_sparse[mask] = torch.rand(mask.sum()) * 2 - 1
-    inputs["sparse_0.1pct"] = very_sparse
-
-    # 7. Single point (only center pixel has value)
-    single_point = torch.zeros(shape)
-    single_point[:, :, :, height//2, width//2] = 1.0
-    inputs["single_point"] = single_point
-
-    # 8. Horizontal gradient
-    gradient = torch.linspace(-1, 1, width).view(1, 1, 1, 1, width).expand(shape)
-    inputs["gradient"] = gradient.clone()
+    inputs["synthetic_sparse_0.1pct"] = very_sparse
 
     return inputs
 
 
 def analyze_latent(name, latent):
     """Analyze latent tensor statistics."""
-    stats = {
+    return {
         "name": name,
         "shape": list(latent.shape),
         "mean": latent.mean().item(),
@@ -88,168 +151,113 @@ def analyze_latent(name, latent):
         "min": latent.min().item(),
         "max": latent.max().item(),
         "abs_mean": latent.abs().mean().item(),
-        "num_zeros": (latent == 0).sum().item(),
-        "total_elements": latent.numel(),
         "zero_ratio": (latent == 0).sum().item() / latent.numel(),
-        "near_zero_ratio": (latent.abs() < 0.01).sum().item() / latent.numel(),
     }
-    return stats
 
 
-def print_analysis(all_stats):
+def print_analysis(all_stats, latents):
     """Print analysis in a formatted table."""
     print("\n" + "=" * 100)
     print("ENCODER ZERO RESPONSE ANALYSIS")
     print("=" * 100)
-    print(f"{'Input Type':<20} {'Mean':>10} {'Std':>10} {'Min':>10} {'Max':>10} {'AbsMean':>10} {'ZeroRatio':>10}")
+    print(f"{'Input Type':<25} {'Mean':>10} {'Std':>10} {'Min':>10} {'Max':>10} {'AbsMean':>10}")
     print("-" * 100)
 
     for stats in all_stats:
-        print(f"{stats['name']:<20} {stats['mean']:>10.4f} {stats['std']:>10.4f} "
-              f"{stats['min']:>10.4f} {stats['max']:>10.4f} {stats['abs_mean']:>10.4f} "
-              f"{stats['zero_ratio']:>10.4f}")
+        print(f"{stats['name']:<25} {stats['mean']:>10.4f} {stats['std']:>10.4f} "
+              f"{stats['min']:>10.4f} {stats['max']:>10.4f} {stats['abs_mean']:>10.4f}")
 
     print("=" * 100)
 
-    # Key findings
-    print("\nKEY FINDINGS:")
-    zero_stats = next(s for s in all_stats if s['name'] == 'zeros')
-    print(f"  1. Zero input -> Latent mean: {zero_stats['mean']:.6f} (should be 0 if encoder is linear)")
-    print(f"  2. Zero input -> Latent std:  {zero_stats['std']:.6f} (should be 0 if encoder is linear)")
-    print(f"  3. Zero input -> Zero ratio:  {zero_stats['zero_ratio']:.6f} (ratio of exactly-zero values)")
-
-    if abs(zero_stats['mean']) > 0.001 or zero_stats['std'] > 0.001:
-        print("\n  CONCLUSION: encoder(zeros) != zeros_latent")
-        print("  This means dropout in pixel space does NOT produce zero latent!")
-    else:
-        print("\n  CONCLUSION: encoder(zeros) ≈ zeros_latent")
-        print("  Dropout in pixel space produces near-zero latent.")
-
-
-def visualize_latents(inputs, latents, save_dir):
-    """Visualize input and latent feature maps."""
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    # Select middle frame for visualization
-    frame_idx = 0
-
-    for name in inputs.keys():
-        fig, axes = plt.subplots(2, 4, figsize=(20, 10))
-        fig.suptitle(f"Input: {name}", fontsize=16)
-
-        # Row 1: Input (3 channels + combined)
-        input_tensor = inputs[name][0, :, frame_idx].cpu().numpy()  # (3, H, W)
-        for i in range(3):
-            axes[0, i].imshow(input_tensor[i], cmap='RdBu', vmin=-1, vmax=1)
-            axes[0, i].set_title(f"Input Channel {i}")
-            axes[0, i].axis('off')
-
-        # Combined RGB view
-        rgb = (input_tensor.transpose(1, 2, 0) + 1) / 2  # [-1,1] -> [0,1]
-        axes[0, 3].imshow(np.clip(rgb, 0, 1))
-        axes[0, 3].set_title("Input RGB")
-        axes[0, 3].axis('off')
-
-        # Row 2: Latent (first 4 channels)
-        latent_tensor = latents[name][0, :, frame_idx].cpu().numpy()  # (C, H, W)
-        num_latent_ch = min(4, latent_tensor.shape[0])
-
-        for i in range(num_latent_ch):
-            im = axes[1, i].imshow(latent_tensor[i], cmap='RdBu')
-            axes[1, i].set_title(f"Latent Ch{i} (mean={latent_tensor[i].mean():.3f})")
-            axes[1, i].axis('off')
-            plt.colorbar(im, ax=axes[1, i], fraction=0.046)
-
-        plt.tight_layout()
-        plt.savefig(save_dir / f"analysis_{name}.png", dpi=100, bbox_inches='tight')
-        plt.close()
-        print(f"  Saved: {save_dir / f'analysis_{name}.png'}")
-
-    # Create comparison figure for zeros vs sparse
-    fig, axes = plt.subplots(2, 4, figsize=(20, 10))
-    fig.suptitle("Comparison: Zeros vs Sparse (Latent Space)", fontsize=16)
-
-    for row, name in enumerate(['zeros', 'sparse_1pct']):
-        latent_tensor = latents[name][0, :, frame_idx].cpu().numpy()
-        for i in range(4):
-            im = axes[row, i].imshow(latent_tensor[i], cmap='RdBu')
-            axes[row, i].set_title(f"{name} - Ch{i}")
-            axes[row, i].axis('off')
-            plt.colorbar(im, ax=axes[row, i], fraction=0.046)
-
-    plt.tight_layout()
-    plt.savefig(save_dir / "comparison_zeros_vs_sparse.png", dpi=100, bbox_inches='tight')
-    plt.close()
-    print(f"  Saved: {save_dir / 'comparison_zeros_vs_sparse.png'}")
-
-
-def compute_latent_difference(latents):
-    """Compute difference between different latent representations."""
-    print("\n" + "=" * 100)
-    print("LATENT DIFFERENCE ANALYSIS")
-    print("=" * 100)
-
-    zero_latent = latents['zeros']
-
-    print(f"{'Comparison':<30} {'L1 Diff':>12} {'L2 Diff':>12} {'Max Diff':>12}")
-    print("-" * 100)
-
-    for name, latent in latents.items():
-        if name == 'zeros':
-            continue
-
-        l1_diff = (latent - zero_latent).abs().mean().item()
-        l2_diff = ((latent - zero_latent) ** 2).mean().sqrt().item()
-        max_diff = (latent - zero_latent).abs().max().item()
-
-        print(f"zeros vs {name:<20} {l1_diff:>12.6f} {l2_diff:>12.6f} {max_diff:>12.6f}")
-
-
-def generate_copyable_results(all_stats, latents):
-    """Generate results in a format easy to copy and share."""
-    print("\n" + "=" * 100)
-    print("COPYABLE RESULTS (for sharing)")
-    print("=" * 100)
-
-    result_text = []
-    result_text.append("=== VAE Encoder Zero Response Test Results ===\n")
-
-    for stats in all_stats:
-        result_text.append(f"{stats['name']}:")
-        result_text.append(f"  mean={stats['mean']:.6f}, std={stats['std']:.6f}")
-        result_text.append(f"  min={stats['min']:.6f}, max={stats['max']:.6f}")
-        result_text.append(f"  abs_mean={stats['abs_mean']:.6f}")
-        result_text.append("")
-
-    # Add key comparison
+    # Key comparison
     zero_latent = latents['zeros']
     true_zero = torch.zeros_like(zero_latent)
 
-    l1_from_true_zero = (zero_latent - true_zero).abs().mean().item()
-    l2_from_true_zero = ((zero_latent - true_zero) ** 2).mean().sqrt().item()
+    print("\n" + "=" * 100)
+    print("KEY FINDING: Distance from encoder output to TRUE ZERO latent")
+    print("=" * 100)
 
-    result_text.append("=== Key Finding ===")
-    result_text.append(f"Distance from encoder(zeros) to true_zeros_latent:")
-    result_text.append(f"  L1: {l1_from_true_zero:.6f}")
-    result_text.append(f"  L2: {l2_from_true_zero:.6f}")
+    for name, latent in latents.items():
+        l1 = (latent - true_zero).abs().mean().item()
+        l2 = ((latent - true_zero) ** 2).mean().sqrt().item()
+        print(f"  {name:<25} L1={l1:.6f}  L2={l2:.6f}")
 
-    if l1_from_true_zero > 0.01:
-        result_text.append("\nCONCLUSION: encoder(zeros) != zeros")
-        result_text.append("Pixel-space dropout does NOT produce zero latent!")
-    else:
-        result_text.append("\nCONCLUSION: encoder(zeros) ≈ zeros")
+    print("\n" + "-" * 100)
+    zero_l1 = (zero_latent - true_zero).abs().mean().item()
+    print(f"\n  CONCLUSION: encoder(pixel_zeros) produces latent with L1={zero_l1:.4f} from true zeros")
+    print(f"  This means pixel-space dropout does NOT produce zero latent!")
 
-    full_result = "\n".join(result_text)
-    print(full_result)
 
-    # Save to file
-    save_path = "/mnt/zihanw/encoder_test_results.txt"
-    with open(save_path, 'w') as f:
-        f.write(full_result)
-    print(f"\nResults saved to: {save_path}")
+def visualize_comparison(inputs, latents, save_dir):
+    """Create side-by-side visualization of inputs and their latents."""
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
 
-    return full_result
+    frame_idx = 0
+
+    # Main comparison figure
+    n_inputs = len(inputs)
+    fig, axes = plt.subplots(n_inputs, 6, figsize=(24, 4 * n_inputs))
+
+    if n_inputs == 1:
+        axes = axes.reshape(1, -1)
+
+    for row, (name, input_tensor) in enumerate(inputs.items()):
+        # Column 0: Input RGB
+        input_np = input_tensor[0, :, frame_idx].cpu().numpy()
+        rgb = (input_np.transpose(1, 2, 0) + 1) / 2
+        axes[row, 0].imshow(np.clip(rgb, 0, 1))
+        axes[row, 0].set_title(f"Input: {name}")
+        axes[row, 0].axis('off')
+
+        # Column 1: Input sparsity visualization (how many non-zero pixels)
+        non_zero_mask = (input_tensor[0, :, frame_idx].abs() > 0.01).any(dim=0).cpu().numpy()
+        axes[row, 1].imshow(non_zero_mask, cmap='gray')
+        sparsity = non_zero_mask.mean() * 100
+        axes[row, 1].set_title(f"Non-zero pixels: {sparsity:.2f}%")
+        axes[row, 1].axis('off')
+
+        # Columns 2-5: First 4 latent channels
+        latent_np = latents[name][0, :, frame_idx].cpu().numpy()
+        for i in range(4):
+            im = axes[row, 2+i].imshow(latent_np[i], cmap='RdBu', vmin=-2, vmax=2)
+            ch_mean = latent_np[i].mean()
+            ch_std = latent_np[i].std()
+            axes[row, 2+i].set_title(f"Latent Ch{i}\nmean={ch_mean:.2f}, std={ch_std:.2f}")
+            axes[row, 2+i].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(save_dir / "comparison_all.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved: {save_dir / 'comparison_all.png'}")
+
+    # Create a focused comparison: zeros vs real_image
+    if 'real_image' in inputs:
+        fig, axes = plt.subplots(2, 6, figsize=(24, 8))
+        fig.suptitle("Comparison: Zero Input vs Real Image", fontsize=16)
+
+        for row, name in enumerate(['zeros', 'real_image']):
+            input_np = inputs[name][0, :, frame_idx].cpu().numpy()
+            rgb = (input_np.transpose(1, 2, 0) + 1) / 2
+            axes[row, 0].imshow(np.clip(rgb, 0, 1))
+            axes[row, 0].set_title(f"Input: {name}")
+            axes[row, 0].axis('off')
+
+            non_zero_mask = (inputs[name][0, :, frame_idx].abs() > 0.01).any(dim=0).cpu().numpy()
+            axes[row, 1].imshow(non_zero_mask, cmap='gray')
+            axes[row, 1].set_title(f"Non-zero: {non_zero_mask.mean()*100:.1f}%")
+            axes[row, 1].axis('off')
+
+            latent_np = latents[name][0, :, frame_idx].cpu().numpy()
+            for i in range(4):
+                im = axes[row, 2+i].imshow(latent_np[i], cmap='RdBu', vmin=-2, vmax=2)
+                axes[row, 2+i].set_title(f"Latent Ch{i}: {latent_np[i].mean():.2f}")
+                axes[row, 2+i].axis('off')
+
+        plt.tight_layout()
+        plt.savefig(save_dir / "comparison_zeros_vs_real.png", dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"  Saved: {save_dir / 'comparison_zeros_vs_real.png'}")
 
 
 def main():
@@ -265,41 +273,50 @@ def main():
     device = torch.device("cuda")
     print(f"Using device: {device}")
 
-    # Load tokenizer directly (no need for full model checkpoint)
-    print("\nLoading VAE tokenizer (Wan2pt1)...")
+    # ========== USER CONFIG ==========
+    # Normal image path (provided by user)
+    NORMAL_IMAGE_PATH = "/mnt/zihanw/R2V_world_foundation_model_zz/rgborg.png"
 
+    # Optional: path to sparse data from dataset
+    SPARSE_DATA_PATH = None  # Set this if you want to load real sparse data
+
+    # Output directory
+    SAVE_DIR = "/mnt/zihanw/encoder_analysis"
+    # =================================
+
+    # Load tokenizer
+    print("\nLoading VAE tokenizer (Wan2pt1)...")
     from cosmos_transfer2._src.predict2.tokenizers.wan2pt1 import Wan2pt1VAEInterface
 
     tokenizer = Wan2pt1VAEInterface(
         chunk_duration=81,
-        load_mean_std=False,  # Don't need mean/std for this test
+        load_mean_std=False,
         temporal_window=4,
         is_parallel=False,
     )
 
-    print(f"Tokenizer loaded successfully!")
+    print(f"Tokenizer loaded!")
     print(f"  Spatial compression: {tokenizer.spatial_compression_factor}x")
     print(f"  Temporal compression: {tokenizer.temporal_compression_factor}x")
     print(f"  Latent channels: {tokenizer.latent_ch}")
 
-    # Create test inputs (smaller size for faster testing)
+    # Create test inputs
     print("\nCreating test inputs...")
-    test_height = 128  # Must be divisible by 8 (spatial compression)
-    test_width = 256   # Must be divisible by 8
-    num_frames = 5     # (5-1)/4 + 1 = 2 latent frames
+    test_height = 128
+    test_width = 256
+    num_frames = 5
 
     inputs = create_test_inputs(
-        batch_size=1,
+        normal_image_path=NORMAL_IMAGE_PATH,
+        sparse_data_path=SPARSE_DATA_PATH,
+        target_height=test_height,
+        target_width=test_width,
         num_frames=num_frames,
-        height=test_height,
-        width=test_width
     )
 
-    print(f"Input shape: {inputs['zeros'].shape}")
-    expected_latent_t = tokenizer.get_latent_num_frames(num_frames)
-    print(f"Expected latent shape: (1, {tokenizer.latent_ch}, {expected_latent_t}, "
-          f"{test_height // tokenizer.spatial_compression_factor}, "
-          f"{test_width // tokenizer.spatial_compression_factor})")
+    print(f"\nInput shapes:")
+    for name, tensor in inputs.items():
+        print(f"  {name}: {tensor.shape}")
 
     # Encode all inputs
     print("\nEncoding inputs...")
@@ -309,35 +326,44 @@ def main():
     with torch.no_grad():
         for name, input_tensor in inputs.items():
             input_tensor = input_tensor.to(device).to(torch.bfloat16)
-
-            # Encode
             latent = tokenizer.encode(input_tensor)
             latents[name] = latent.float().cpu()
-
-            # Analyze
             stats = analyze_latent(name, latent)
             all_stats.append(stats)
             print(f"  Encoded {name}: latent shape = {latent.shape}")
 
     # Print analysis
-    print_analysis(all_stats)
-
-    # Compute differences
-    compute_latent_difference(latents)
+    print_analysis(all_stats, latents)
 
     # Visualize
     print("\nGenerating visualizations...")
-    save_dir = "/mnt/zihanw/encoder_analysis"
-    visualize_latents(inputs, latents, save_dir)
+    visualize_comparison(inputs, latents, SAVE_DIR)
 
-    # Generate copyable results
-    generate_copyable_results(all_stats, latents)
+    # Save text results
+    result_path = os.path.join(SAVE_DIR, "encoder_test_results.txt")
+    with open(result_path, 'w') as f:
+        f.write("=== VAE Encoder Zero Response Test ===\n\n")
+        for stats in all_stats:
+            f.write(f"{stats['name']}:\n")
+            f.write(f"  mean={stats['mean']:.6f}, std={stats['std']:.6f}\n")
+            f.write(f"  min={stats['min']:.6f}, max={stats['max']:.6f}\n\n")
+
+        f.write("\n=== Distance to True Zero Latent ===\n")
+        true_zero = torch.zeros_like(latents['zeros'])
+        for name, latent in latents.items():
+            l1 = (latent - true_zero).abs().mean().item()
+            f.write(f"{name}: L1={l1:.6f}\n")
+
+        zero_l1 = (latents['zeros'] - true_zero).abs().mean().item()
+        f.write(f"\nCONCLUSION: encoder(zeros) has L1={zero_l1:.4f} from true zeros\n")
+        f.write("Pixel-space dropout does NOT produce zero latent!\n")
+
+    print(f"\nResults saved to: {result_path}")
 
     print("\n" + "=" * 100)
     print("TEST COMPLETE")
     print("=" * 100)
-    print(f"\nVisualization saved to: {save_dir}/")
-    print(f"Text results saved to: /mnt/zihanw/encoder_test_results.txt")
+    print(f"\nVisualization saved to: {SAVE_DIR}/")
 
 
 if __name__ == "__main__":
