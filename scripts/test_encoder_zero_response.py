@@ -9,7 +9,7 @@ This script helps understand:
 3. The difference between "true zero latent" vs "encoded zero"
 
 Usage:
-    cd /home/user/R2V_world_foundation_model
+    cd /mnt/zihanw/R2V_world_foundation_model_zz
     PYTHONPATH=. python scripts/test_encoder_zero_response.py
 """
 
@@ -33,10 +33,11 @@ from pathlib import Path
 import cosmos_transfer2._src.imaginaire.utils.hf_mirror  # noqa: F401
 
 
-def create_test_inputs(batch_size=1, num_frames=5, height=720, width=1280):
-    """Create different test inputs for encoder analysis."""
+def create_test_inputs(batch_size=1, num_frames=5, height=180, width=320):
+    """Create different test inputs for encoder analysis.
 
-    # Input shape: (B, C, T, H, W), range [-1, 1]
+    Input range should be [-1, 1] for the VAE.
+    """
     shape = (batch_size, 3, num_frames, height, width)
 
     inputs = {}
@@ -72,7 +73,7 @@ def create_test_inputs(batch_size=1, num_frames=5, height=720, width=1280):
 
     # 8. Horizontal gradient
     gradient = torch.linspace(-1, 1, width).view(1, 1, 1, 1, width).expand(shape)
-    inputs["gradient"] = gradient
+    inputs["gradient"] = gradient.clone()
 
     return inputs
 
@@ -264,49 +265,31 @@ def main():
     device = torch.device("cuda")
     print(f"Using device: {device}")
 
-    # Load model to get the tokenizer/encoder
-    print("\nLoading model...")
+    # Load tokenizer directly (no need for full model checkpoint)
+    print("\nLoading VAE tokenizer (Wan2pt1)...")
 
-    from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
-    from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
+    from cosmos_transfer2._src.predict2.tokenizers.wan2pt1 import Wan2pt1VAEInterface
 
-    # Import experiment config
-    import cosmos_transfer2.experiments.multiview.zihanw_singleview_dropout_training  # noqa: F401
-
-    # Use a checkpoint path (adjust as needed)
-    ckpt_path = "/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_dropout_train/checkpoints/iter_000010000"
-
-    if not os.path.exists(ckpt_path):
-        print(f"Checkpoint not found: {ckpt_path}")
-        print("Trying alternative path...")
-        ckpt_path = "/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_dropout_train/checkpoints/iter_000005000"
-
-    if not os.path.exists(ckpt_path):
-        print("No checkpoint found. Please provide a valid checkpoint path.")
-        return
-
-    print(f"Loading from: {ckpt_path}")
-
-    model, config = load_model_from_checkpoint(
-        experiment_name="zihanw_singleview_dropout_train",
-        s3_checkpoint_dir=ckpt_path,
-        config_file="cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/config.py",
-        load_ema_to_reg=True,
-        experiment_opts=[],
+    tokenizer = Wan2pt1VAEInterface(
+        chunk_duration=81,
+        load_mean_std=True,
+        # Use default S3 path for VAE weights
+        vae_pth="s3://bucket/cosmos_diffusion_v2/pretrain_weights/tokenizer/wan2pt1/Wan2.1_VAE.pth",
+        s3_credential_path="credentials/s3_training.secret",
+        temporal_window=4,
+        is_parallel=False,
     )
 
-    model.eval()
-    tokenizer = model.tokenizer
-    print(f"Tokenizer type: {type(tokenizer)}")
-    print(f"Tokenizer spatial compression: {tokenizer.spatial_compression_factor}")
-    print(f"Tokenizer temporal compression: {tokenizer.temporal_compression_factor}")
+    print(f"Tokenizer loaded successfully!")
+    print(f"  Spatial compression: {tokenizer.spatial_compression_factor}x")
+    print(f"  Temporal compression: {tokenizer.temporal_compression_factor}x")
+    print(f"  Latent channels: {tokenizer.latent_ch}")
 
     # Create test inputs (smaller size for faster testing)
     print("\nCreating test inputs...")
-    # Use smaller resolution for faster testing
-    test_height = 180  # 720 / 4
-    test_width = 320   # 1280 / 4
-    num_frames = 5
+    test_height = 128  # Must be divisible by 8 (spatial compression)
+    test_width = 256   # Must be divisible by 8
+    num_frames = 5     # (5-1)/4 + 1 = 2 latent frames
 
     inputs = create_test_inputs(
         batch_size=1,
@@ -316,8 +299,8 @@ def main():
     )
 
     print(f"Input shape: {inputs['zeros'].shape}")
-    print(f"Expected latent shape: ({1}, {tokenizer.latent_ch}, "
-          f"{num_frames // tokenizer.temporal_compression_factor}, "
+    expected_latent_t = tokenizer.get_latent_num_frames(num_frames)
+    print(f"Expected latent shape: (1, {tokenizer.latent_ch}, {expected_latent_t}, "
           f"{test_height // tokenizer.spatial_compression_factor}, "
           f"{test_width // tokenizer.spatial_compression_factor})")
 
