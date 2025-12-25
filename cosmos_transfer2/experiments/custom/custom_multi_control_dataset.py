@@ -125,6 +125,9 @@ class MultiControlMultiviewDataset(Dataset):
             raise FileNotFoundError(f"Caption folder {caption_folder} does not exist!")
 
         samples = []
+        skipped_short = []
+        required_frames = self.num_video_frames * self.fps_downsample_factor
+
         for caption_file in caption_folder.glob("*.json"):
             sample_id = caption_file.stem  # e.g., "017_seg01"
             scene_id = sample_id.split("_")[0]  # e.g., "017"
@@ -133,9 +136,30 @@ class MultiControlMultiviewDataset(Dataset):
             if scene_id in self.exclude_scene_ids:
                 continue
 
+            # Check if video has enough frames
+            video_path = self.blur_dataset_dir / "videos" / first_camera_folder / f"{sample_id}.mp4"
+            if video_path.exists():
+                try:
+                    from decord import VideoReader
+                    vr = VideoReader(str(video_path))
+                    if len(vr) < required_frames:
+                        skipped_short.append((sample_id, len(vr)))
+                        continue
+                except Exception as e:
+                    print(f"[Warning] Failed to read {video_path}: {e}")
+                    continue
+
             samples.append(sample_id)
 
         samples.sort()
+
+        if skipped_short:
+            print(f"[MultiControlMultiviewDataset] Skipped {len(skipped_short)} samples with < {required_frames} frames:")
+            for sid, nframes in skipped_short[:5]:  # Show first 5
+                print(f"  - {sid}: {nframes} frames")
+            if len(skipped_short) > 5:
+                print(f"  ... and {len(skipped_short) - 5} more")
+
         return samples
 
     def __len__(self) -> int:
