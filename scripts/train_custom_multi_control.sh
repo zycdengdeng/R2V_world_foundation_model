@@ -73,13 +73,13 @@ fi
 
 echo ""
 echo "Training Data Configuration:"
-echo "  - Blur dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection"
-echo "  - Depth dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output/DepthSparse"
-echo "  - HDMap dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output/HDMapBbox"
+echo "  - Blur dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/BlurProjection"
+echo "  - Depth dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/DepthSparse"
+echo "  - HDMap dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/HDMapBbox"
 echo ""
 echo "Data Split:"
-echo "  - Training scenes (16): 017, 019, 020, 022, 045, 049, 051, 055, 057, 059, 065, 067, 069, 073, 075, 077"
-echo "  - Test scenes (2): 047, 061"
+echo "  - Training scenes (59): 001-089 (excluding test scenes)"
+echo "  - Test scenes (20): 008, 012, 022, 030, 031, 037, 043, 044, 051, 054, 062, 065, 067, 072, 075, 076, 083, 084, 086, 087"
 echo ""
 
 # ============================================================================
@@ -87,9 +87,10 @@ echo ""
 # ============================================================================
 
 echo "Starting training..."
-echo "  hint_keys: blur_depth_hdmap (blur/depth from scratch, hdmap pre-trained)"
-echo "  max_iter: 20000 (full) / 500 (small)"
-echo "  save_iter: 500 (full) / 100 (small)"
+echo "  hint_keys: hdmap_blur_depth (hdmap pre-trained, blur/depth from scratch)"
+echo "  max_iter: 4000 (full) / 500 (small)"
+echo "  save_iter: 200 (full) / 50 (small)"
+echo "  lr: 3e-5 (full) / 8.63e-5 (small)"
 echo ""
 
 # Set WORLD_SIZE for context parallel configuration
