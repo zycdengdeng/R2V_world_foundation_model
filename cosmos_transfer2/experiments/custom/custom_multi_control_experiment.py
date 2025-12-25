@@ -107,18 +107,18 @@ CustomMultiControlConditioner: LazyDict = L(MultiViewControlVideo2WorldCondition
 # ============================================================================
 
 # Dataset paths (user needs to modify these)
-BLUR_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection"
-DEPTH_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/DepthSparse"
-HDMAP_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/HDMapBbox"
+BLUR_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/BlurProjection"
+DEPTH_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/DepthSparse"
+HDMAP_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/HDMapBbox"
 
 # Output directory
 OUTPUT_DIR = "/mnt/zihanw/Output_R2V_world_foundation_model_v1"
 
 # Test scene IDs to exclude from training
-TEST_SCENE_IDS = ["047", "061"]
+TEST_SCENE_IDS = ["008", "012", "022", "030", "031", "037", "043", "044", "051", "054", "062", "065", "067", "072", "075", "076", "083", "084", "086", "087"]
 
 # Training scene IDs (for reference)
-TRAIN_SCENE_IDS = ["017", "019", "020", "022", "045", "049", "051", "055", "057", "059", "065", "067", "069", "073", "075", "077"]
+TRAIN_SCENE_IDS = ["001", "002", "003", "004", "006", "007", "009", "010", "013", "015", "017", "019", "020", "024", "025", "026", "027", "028", "029", "032", "033", "034", "035", "036", "038", "039", "040", "041", "042", "045", "046", "047", "048", "049", "050", "052", "055", "056", "057", "058", "059", "060", "061", "064", "066", "068", "069", "070", "073", "074", "077", "078", "079", "080", "081", "082", "085", "088", "089"]
 
 # Number of GPUs (for context parallel)
 WORLD_SIZE = int(os.environ.get("WORLD_SIZE", 8))
