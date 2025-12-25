@@ -235,8 +235,8 @@ custom_multi_control_post_train = dict(
     scheduler=dict(
         f_max=[1.0],  # Use lr directly as max
         f_min=[0.1],  # Decay to 3e-6 at end
-        warm_up_steps=[200],  # 5% of training
-        cycle_lengths=[4000],  # Match max_iter
+        warm_up_steps=[250],  # 5% of training
+        cycle_lengths=[5000],  # Match max_iter
     ),
     model=dict(
         config=dict(
@@ -297,7 +297,7 @@ custom_multi_control_post_train = dict(
     ),
     trainer=dict(
         logging_iter=20,  # Log every 20 iterations
-        max_iter=4000,  # Total 4000 iterations
+        max_iter=5000,  # Total 5000 iterations
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
