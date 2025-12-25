@@ -68,29 +68,12 @@ else
 fi
 
 # ============================================================================
-# Training Data Information
-# ============================================================================
-
-echo ""
-echo "Training Data Configuration:"
-echo "  - Blur dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/BlurProjection"
-echo "  - Depth dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/DepthSparse"
-echo "  - HDMap dataset: /mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/HDMapBbox"
-echo ""
-echo "Data Split:"
-echo "  - Training scenes (59): 001-089 (excluding test scenes)"
-echo "  - Test scenes (20): 008, 012, 022, 030, 031, 037, 043, 044, 051, 054, 062, 065, 067, 072, 075, 076, 083, 084, 086, 087"
-echo ""
-
-# ============================================================================
 # Run Training
 # ============================================================================
 
-echo "Starting training..."
-echo "  hint_keys: hdmap_blur_depth (hdmap pre-trained, blur/depth from scratch)"
-echo "  max_iter: 4000 (full) / 500 (small)"
-echo "  save_iter: 200 (full) / 50 (small)"
-echo "  lr: 3e-5 (full) / 8.63e-5 (small)"
+echo ""
+echo "Starting training with experiment: ${EXPERIMENT}"
+echo "See cosmos_transfer2/experiments/custom/custom_multi_control_experiment.py for detailed config"
 echo ""
 
 # Set WORLD_SIZE for context parallel configuration
