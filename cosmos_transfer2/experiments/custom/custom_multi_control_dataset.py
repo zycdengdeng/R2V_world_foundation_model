@@ -115,6 +115,18 @@ class MultiControlMultiviewDataset(Dataset):
         print(f"[MultiControlMultiviewDataset] Found {len(self.samples)} samples")
         print(f"[MultiControlMultiviewDataset] Excluded scene IDs: {self.exclude_scene_ids}")
 
+    def _check_video_frames(self, video_path: Path, required_frames: int) -> Tuple[bool, int]:
+        """Check if video has enough frames. Returns (is_valid, num_frames)."""
+        if not video_path.exists():
+            return False, 0
+        try:
+            from decord import VideoReader
+            vr = VideoReader(str(video_path))
+            num_frames = len(vr)
+            return num_frames >= required_frames, num_frames
+        except Exception:
+            return False, 0
+
     def _build_sample_list(self) -> List[str]:
         """Build list of sample IDs from the dataset."""
         caption_path = self.blur_dataset_dir / "captions"
@@ -126,7 +138,10 @@ class MultiControlMultiviewDataset(Dataset):
 
         samples = []
         skipped_short = []
+        skipped_missing = []
         required_frames = self.num_video_frames * self.fps_downsample_factor
+
+        print(f"[MultiControlMultiviewDataset] Scanning videos (checking {required_frames} frames requirement)...")
 
         for caption_file in caption_folder.glob("*.json"):
             sample_id = caption_file.stem  # e.g., "017_seg01"
@@ -136,29 +151,62 @@ class MultiControlMultiviewDataset(Dataset):
             if scene_id in self.exclude_scene_ids:
                 continue
 
-            # Check if video has enough frames
-            video_path = self.blur_dataset_dir / "videos" / first_camera_folder / f"{sample_id}.mp4"
-            if video_path.exists():
-                try:
-                    from decord import VideoReader
-                    vr = VideoReader(str(video_path))
-                    if len(vr) < required_frames:
-                        skipped_short.append((sample_id, len(vr)))
-                        continue
-                except Exception as e:
-                    print(f"[Warning] Failed to read {video_path}: {e}")
-                    continue
+            # Check ALL videos for this sample (all cameras, all control types)
+            is_valid = True
+            min_frames = float('inf')
 
-            samples.append(sample_id)
+            for camera_name in self.camera_keys:
+                folder_name = f"ftheta_{camera_name}"
+
+                # Check main video
+                video_path = self.blur_dataset_dir / "videos" / folder_name / f"{sample_id}.mp4"
+                valid, nframes = self._check_video_frames(video_path, required_frames)
+                if not valid:
+                    is_valid = False
+                    min_frames = min(min_frames, nframes)
+
+                # Check blur control
+                blur_path = self.blur_dataset_dir / "control_input_blur" / folder_name / f"{sample_id}.mp4"
+                valid, nframes = self._check_video_frames(blur_path, required_frames)
+                if not valid:
+                    is_valid = False
+                    min_frames = min(min_frames, nframes)
+
+                # Check depth control
+                depth_path = self.depth_dataset_dir / "control_input_depth" / folder_name / f"{sample_id}.mp4"
+                valid, nframes = self._check_video_frames(depth_path, required_frames)
+                if not valid:
+                    is_valid = False
+                    min_frames = min(min_frames, nframes)
+
+                # Check hdmap control
+                hdmap_path = self.hdmap_dataset_dir / "control_input_hdmap_bbox" / folder_name / f"{sample_id}.mp4"
+                valid, nframes = self._check_video_frames(hdmap_path, required_frames)
+                if not valid:
+                    is_valid = False
+                    min_frames = min(min_frames, nframes)
+
+                if not is_valid:
+                    break  # No need to check other cameras
+
+            if is_valid:
+                samples.append(sample_id)
+            elif min_frames == 0:
+                skipped_missing.append(sample_id)
+            else:
+                skipped_short.append((sample_id, int(min_frames)))
 
         samples.sort()
 
         if skipped_short:
             print(f"[MultiControlMultiviewDataset] Skipped {len(skipped_short)} samples with < {required_frames} frames:")
-            for sid, nframes in skipped_short[:5]:  # Show first 5
+            for sid, nframes in skipped_short[:10]:
                 print(f"  - {sid}: {nframes} frames")
-            if len(skipped_short) > 5:
-                print(f"  ... and {len(skipped_short) - 5} more")
+            if len(skipped_short) > 10:
+                print(f"  ... and {len(skipped_short) - 10} more")
+
+        if skipped_missing:
+            print(f"[MultiControlMultiviewDataset] Skipped {len(skipped_missing)} samples with missing files")
 
         return samples
 
