@@ -220,7 +220,7 @@ custom_multi_control_post_train = dict(
         name=f"2b_custom_multi_control_{RUN_TIMESTAMP}",  # Unique name with timestamp
     ),
     checkpoint=dict(
-        save_iter=500,  # Save every 500 iterations
+        save_iter=200,  # Save every 200 iterations
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,  # Load from Transfer2.5 multiview
         load_training_state=False,  # Don't load optimizer state
         strict_resume=False,  # Allow missing keys (blur/depth heads will be random initialized)
@@ -228,15 +228,15 @@ custom_multi_control_post_train = dict(
         save_to_object_store=dict(enabled=False),
     ),
     optimizer=dict(
-        lr=8.63e-5,
+        lr=3e-5,  # Reduced for smaller dataset (was 8.63e-5)
         weight_decay=1e-3,
         betas=[0.9, 0.999],
     ),
     scheduler=dict(
-        f_max=[0.5],
-        f_min=[0.2],
-        warm_up_steps=[1000],
-        cycle_lengths=[100_000],
+        f_max=[1.0],  # Use lr directly as max
+        f_min=[0.1],  # Decay to 3e-6 at end
+        warm_up_steps=[200],  # 5% of training
+        cycle_lengths=[4000],  # Match max_iter
     ),
     model=dict(
         config=dict(
@@ -296,8 +296,8 @@ custom_multi_control_post_train = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=50,
-        max_iter=20_000,
+        logging_iter=20,  # Log every 20 iterations
+        max_iter=4000,  # Total 4000 iterations
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
@@ -305,7 +305,7 @@ custom_multi_control_post_train = dict(
             grad_clip=dict(clip_norm=0.1),
             # Sample generation for monitoring (no condition frames - pure control)
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=1000,
+                every_n=200,  # Visualize every 200 iterations
                 is_x0=False,
                 is_ema=False,
                 num_sampling_step=35,
@@ -318,7 +318,7 @@ custom_multi_control_post_train = dict(
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=1000,
+                every_n=200,  # Visualize every 200 iterations
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
@@ -333,14 +333,14 @@ custom_multi_control_post_train = dict(
             # Evaluation on fixed test samples
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0, 1],  # First 2 samples from test set
-                every_n=2000,  # Evaluate every 2000 iterations
+                eval_sample_indices=[0, 1, 2, 3],  # 4 samples from test set
+                every_n=200,  # Evaluate every 200 iterations
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
                 control_weights=[1.0],  # Only test with control enabled
-                num_cond_frames=[1],  # 1 conditioning frame
+                num_cond_frames=[0],  # No conditioning frames
                 save_local=True,
                 name="eval_test",
             ),
