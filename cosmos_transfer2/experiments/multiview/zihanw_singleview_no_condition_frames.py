@@ -48,7 +48,6 @@ from cosmos_transfer2._src.predict2_multiview.datasets.multiview import (
     DEFAULT_CAMERAS,
     collate_fn,
 )
-from cosmos_transfer2.multiview_config import DEFAULT_CHECKPOINT
 
 # Import the dataset class and camera definitions
 from cosmos_transfer2.experiments.multiview.zihanw_multicontrol_dataloader import (
@@ -143,13 +142,23 @@ register_singleview_no_cond_dataloader()
 
 
 # Experiment configuration - NO conditional frames version
+# Following the same pattern as classmate's custom_multi_control_experiment.py
+# Key: Don't inherit from buttercup experiment (which includes load_base_model_callbacks)
 zihanw_singleview_no_condition_frames = dict(
+    # Direct defaults - NOT inheriting from buttercup experiment
+    # This avoids load_base_model_callbacks which uses DCP format (incompatible with .pt files)
     defaults=[
-        f"/experiment/{DEFAULT_CHECKPOINT.experiment}",
         {"override /data_train": "zihanw_singleview_no_cond"},
         {"override /data_val": "zihanw_singleview_no_cond_val"},
-        # Use conditioner WITHOUT dropout (always use control)
+        {"override /model": "fsdp_rectified_flow_multiview_control"},
+        {"override /net": "cosmos_v1_2B_multiview_control"},
         {"override /conditioner": "video_prediction_multiview_control_conditioner_multicontrol"},
+        {"override /ckpt_type": "dcp"},
+        {"override /optimizer": "fusedadamw"},
+        {"override /tokenizer": "wan2pt1_tokenizer"},
+        # IMPORTANT: NO load_base_model_callbacks! It uses DCP format which fails with .pt files
+        {"override /callbacks": ["basic", "wandb", "cluster_speed"]},
+        "_self_",
     ],
     job=dict(
         project="cosmos_transfer_v2p5",
@@ -159,17 +168,25 @@ zihanw_singleview_no_condition_frames = dict(
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
         # Load pretrained weights via checkpointer
-        # NOTE: HuggingFace provides .pt file (inference format)
-        # The checkpointer uses easy_io.load() which can handle .pt files
+        # The checkpointer uses easy_io.load() which can handle .pt files from HuggingFace
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
         load_training_state=False,  # Don't load optimizer state
         strict_resume=False,  # Allow missing keys for new control heads
-        load_from_object_store=dict(
-            enabled=False,
-        ),
-        save_to_object_store=dict(
-            enabled=False,
-        ),
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    # Optimizer config (same as classmate's)
+    optimizer=dict(
+        lr=3e-5,  # Reduced for smaller dataset
+        weight_decay=1e-3,
+        betas=[0.9, 0.999],
+    ),
+    # Scheduler config
+    scheduler=dict(
+        f_max=[1.0],
+        f_min=[0.1],
+        warm_up_steps=[250],
+        cycle_lengths=[30000],  # Match max_iter
     ),
     model=dict(
         config=dict(
@@ -178,21 +195,49 @@ zihanw_singleview_no_condition_frames = dict(
             # blur: channels 16-31, train from scratch
             # depth: channels 32-47, train from scratch
             hint_keys="hdmap_blur_depth",
-            # IMPORTANT: base_load_from=None to skip load_base_model()
-            # load_base_model() uses DCP format which doesn't work with .pt files
-            # Instead, we use checkpoint.load_path to load the .pt file via checkpointer
-            base_load_from=None,
-            # state_t=8 for 29 frames
-            state_t=8,
-            # Single view training
-            train_sample_views_range=(1, 1),
-            # KEY CHANGE: No conditional frames!
-            # This forces model to learn from control alone, not copy from GT frames
+            # No conditional frames - pure control-based generation
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=0,
-            conditional_frames_probs={0: 1.0},  # 100% probability of 0 conditional frames
-            # Condition location (still needed for the framework)
             condition_locations=["first_random_n"],
+            # Single view training (1 camera)
+            train_sample_views_range=[1, 1],
+            conditional_frames_probs={0: 1.0},  # 100% no condition frames
+            state_t=8,
+            online_text_embeddings_as_dict=False,
+            fsdp_shard_size=8,
+            resolution="720p",
+            shift=5,
+            use_dynamic_shift=False,
+            train_time_weight="uniform",
+            train_time_distribution="logitnormal",
+            base_load_from=None,  # No additional base model loading
+            # Network configuration (same as classmate's)
+            net=dict(
+                timestep_scale=0.001,
+                use_wan_fp32_strategy=True,
+                concat_view_embedding=True,
+                view_condition_dim=7,
+                state_t=8,
+                n_cameras_emb=7,
+                vace_has_mask=False,
+                use_input_hint_block=True,
+                condition_strategy="spaced",
+                vace_block_every_n=7,
+                rope_enable_fps_modulation=False,
+                rope_h_extrapolation_ratio=3.0,
+                rope_w_extrapolation_ratio=3.0,
+                rope_t_extrapolation_ratio=8.0 / 24.0,
+                use_crossattn_projection=True,
+                crossattn_proj_in_channels=100352,
+                crossattn_emb_channels=1024,
+                sac_config=dict(mode="predict2_2b_720_aggressive"),
+            ),
+            # Conditioner configuration
+            conditioner=dict(
+                use_video_condition=dict(dropout_rate=0.0),
+                text=dict(dropout_rate=0.2, use_empty_string=False),
+            ),
+            tokenizer=dict(temporal_window=16),
         ),
     ),
     trainer=dict(
