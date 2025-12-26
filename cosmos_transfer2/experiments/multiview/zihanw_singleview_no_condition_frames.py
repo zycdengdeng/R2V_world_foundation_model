@@ -38,6 +38,8 @@ Usage:
         -- experiment=zihanw_singleview_no_condition_frames
 """
 
+import os
+
 import torch.distributed as dist
 from hydra.core.config_store import ConfigStore
 
@@ -59,6 +61,10 @@ from cosmos_transfer2.experiments.multiview.zihanw_multicontrol_dataloader impor
 # - Base model (text-to-video capability)
 # - hdmap_bbox control head (channels 0-15)
 TRANSFER2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a")
+
+# Number of GPUs - automatically detected from WORLD_SIZE environment variable
+# This is set by torchrun based on --nproc_per_node
+WORLD_SIZE = int(os.environ.get("WORLD_SIZE", 1))
 
 
 # Single camera for single-view training (front camera only)
@@ -283,9 +289,9 @@ zihanw_singleview_no_condition_frames = dict(
         ),
     ),
     model_parallel=dict(
-        # For single-view with state_t=8, valid cp_size: 1, 2, 4, 8
-        # Using 4 GPUs for faster training (splits temporal dimension)
-        context_parallel_size=4,
+        # Context parallel size = number of GPUs (automatically detected)
+        # For state_t=8, valid cp_size: 1, 2, 4, 8
+        context_parallel_size=WORLD_SIZE,
     ),
 )
 
