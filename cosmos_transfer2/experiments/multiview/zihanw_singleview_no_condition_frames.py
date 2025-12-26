@@ -39,9 +39,13 @@ Usage:
 """
 
 import os
+from datetime import datetime
 
 import torch.distributed as dist
 from hydra.core.config_store import ConfigStore
+
+# Generate timestamp for unique run directories (prevents auto-resume from old checkpoints)
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
@@ -170,7 +174,7 @@ zihanw_singleview_no_condition_frames = dict(
     job=dict(
         project="cosmos_transfer_v2p5",
         group="zihanw_singleview",
-        name="zihanw_singleview_no_condition_frames"
+        name=f"zihanw_singleview_no_cond_{RUN_TIMESTAMP}"  # Unique name to prevent auto-resume
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
