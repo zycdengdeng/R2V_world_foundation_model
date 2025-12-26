@@ -46,6 +46,7 @@ from hydra.core.config_store import ConfigStore
 from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_generic_dataloader, get_sampler
+from cosmos_transfer2._src.predict2.text_encoders.text_encoder import EmbeddingConcatStrategy
 from cosmos_transfer2._src.predict2_multiview.datasets.multiview import (
     DEFAULT_CAMERAS,
     collate_fn,
@@ -244,6 +245,12 @@ zihanw_singleview_no_condition_frames = dict(
                 text=dict(dropout_rate=0.2, use_empty_string=False),
             ),
             tokenizer=dict(temporal_window=16),
+            # Text encoder configuration - required for computing text embeddings from ai_caption
+            text_encoder_class="reason1p1_7B",
+            text_encoder_config=dict(
+                embedding_concat_strategy=str(EmbeddingConcatStrategy.FULL_CONCAT),
+                compute_online=True,
+            ),
         ),
     ),
     trainer=dict(
