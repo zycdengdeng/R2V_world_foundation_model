@@ -51,6 +51,9 @@ from cosmos_transfer2._src.imaginaire.lazy_config import LazyCall as L
 from cosmos_transfer2._src.imaginaire.utils.checkpoint_db import get_checkpoint_by_uuid
 from cosmos_transfer2._src.predict2.datasets.local_datasets.dataset_video import get_generic_dataloader, get_sampler
 from cosmos_transfer2._src.predict2.text_encoders.text_encoder import EmbeddingConcatStrategy
+from cosmos_transfer2._src.predict2_multiview.callbacks.every_n_draw_sample_multiviewvideo import (
+    EveryNDrawSampleMultiviewVideo,
+)
 from cosmos_transfer2._src.predict2_multiview.datasets.multiview import (
     DEFAULT_CAMERAS,
     collate_fn,
@@ -273,17 +276,31 @@ zihanw_singleview_no_condition_frames = dict(
             device_monitor=dict(
                 save_s3=False,
             ),
-            every_n_sample_reg=dict(
-                every_n=200,
-                save_s3=False,
+            every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=500,  # Visualize every 500 iterations
+                is_x0=False,
+                is_ema=False,
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
                 # Order must match hint_keys: hdmap first, then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                num_cond_frames=[0],  # No condition frames
+                save_s3=False,
             ),
-            every_n_sample_ema=dict(
-                every_n=200,
-                save_s3=False,
+            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=500,  # Visualize every 500 iterations
+                is_x0=False,
+                is_ema=True,
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
                 # Order must match hint_keys: hdmap first, then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                num_cond_frames=[0],  # No condition frames
+                save_s3=False,
             ),
             wandb=dict(
                 save_s3=False,
