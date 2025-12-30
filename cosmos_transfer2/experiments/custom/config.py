@@ -40,7 +40,7 @@ class Config(config.Config):
             {"model": "fsdp_rectified_flow_multiview_control"},
             {"net": "cosmos_v1_2B_multiview_control"},
             {"optimizer": "fusedadamw"},
-            {"scheduler": "cosine"},
+            {"scheduler": "lambdalinear"},
             {"callbacks": "basic"},
             {"ckpt_type": "dcp"},
             {"tokenizer": "wan2pt1_tokenizer"},
