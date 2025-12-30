@@ -48,6 +48,11 @@ CAMERAS_4VIEW: tuple[str, ...] = (
     "camera_cross_left_120fov",   # Left
 )
 
+# 1-camera subset for single-view training/inference
+CAMERAS_1VIEW: tuple[str, ...] = (
+    "camera_front_wide_120fov",   # Front only
+)
+
 # 2-camera subset for training with 2 GPUs (front-rear coverage)
 # This allows context_parallel_size=2 with n_views=2
 # Required because state_t=6 (21 frames) and 6 % cp_size must equal 0

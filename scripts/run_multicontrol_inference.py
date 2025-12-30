@@ -171,7 +171,7 @@ def create_eval_dataloader():
     from torch.utils.data import DataLoader
     from cosmos_transfer2.experiments.multiview.zihanw_multicontrol_dataloader import (
         MultiControlMultiviewDataset,
-        CAMERAS_2VIEW,
+        CAMERAS_1VIEW,
         DEFAULT_CAMERAS,
         collate_fn,
     )
@@ -187,7 +187,7 @@ def create_eval_dataloader():
         resolution_hw=(720, 1280),
         num_video_frames=29,
         single_caption_camera_name="camera_front_wide_120fov",
-        selected_cameras=CAMERAS_2VIEW,
+        selected_cameras=CAMERAS_1VIEW,  # Single view to match training
         # Only include eval clips
         include_only_clips=("075", "077"),
     )
