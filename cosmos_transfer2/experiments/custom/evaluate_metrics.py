@@ -494,6 +494,17 @@ def evaluate(
 
     logger.info(f"Evaluating {num_samples} samples")
 
+    # Determine which samples to save videos for (10 evenly spaced)
+    num_videos_to_save = min(10, num_samples)
+    if num_samples > 1:
+        video_save_indices = set(
+            int(i * (num_samples - 1) / (num_videos_to_save - 1))
+            for i in range(num_videos_to_save)
+        )
+    else:
+        video_save_indices = {0}
+    logger.info(f"Will save comparison videos for {len(video_save_indices)} samples: {sorted(video_save_indices)}")
+
     # Load model
     model, config = load_model(checkpoint_path, device)
 
@@ -564,13 +575,14 @@ def evaluate(
             real_video_features.append(gt_vid_feats.cpu())
             fake_video_features.append(gen_vid_feats.cpu())
 
-            # Save videos if requested
-            if save_videos:
+            # Save videos for selected samples only (10 evenly spaced)
+            if save_videos and idx in video_save_indices:
                 save_comparison_video(
                     gt_video[0], gen_video[0], batch,
                     os.path.join(output_dir, f"sample_{idx:04d}.mp4"),
                     fps=10
                 )
+                logger.info(f"  Saved comparison video for sample {idx}")
 
             logger.info(f"Sample {idx}: LPIPS={lpips_score:.4f}, PSNR={psnr_score:.2f}dB, SSIM={ssim_score:.4f}")
 
