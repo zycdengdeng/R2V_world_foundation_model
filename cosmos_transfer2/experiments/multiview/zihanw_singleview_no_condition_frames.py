@@ -307,19 +307,7 @@ zihanw_singleview_no_condition_frames = dict(
                 num_cond_frames=[0],  # No condition frames
                 save_s3=False,
             ),
-            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=500,  # Visualize every 500 iterations
-                is_x0=False,
-                is_ema=True,
-                num_sampling_step=35,
-                guidance=[7],
-                fps=10,
-                # Order must match hint_keys: hdmap first, then blur, depth
-                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[1.0],  # Test with control enabled
-                num_cond_frames=[0],  # No condition frames
-                save_s3=False,
-            ),
+            # Note: every_n_sample_ema removed - requires EMA to be enabled in model config
             wandb=dict(
                 save_s3=False,
             ),
