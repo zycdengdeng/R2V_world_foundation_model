@@ -26,6 +26,7 @@ from torch.distributed import get_process_group_ranks
 
 from cosmos_transfer2._src.imaginaire.utils import log
 from cosmos_transfer2._src.imaginaire.utils.context_parallel import broadcast_split_tensor
+from cosmos_transfer2._src.imaginaire.utils.ema import FastEmaModelUpdater
 from cosmos_transfer2._src.predict2.conditioner import DataType
 from cosmos_transfer2._src.predict2.models.text2world_model_rectified_flow import IS_PREPROCESSED_KEY
 from cosmos_transfer2._src.predict2.models.video2world_model_rectified_flow import NUM_CONDITIONAL_FRAMES_KEY
@@ -63,27 +64,40 @@ class MultiviewControlVideo2WorldRectifiedFlowConfig(*_base_classes):
     conditional_frames_probs: Optional[Dict[int, float]] = None  # Probability distribution for conditional frames
 
 
-class _EmaWorkerWrapper:
+class _EmaWorkerWrapper(FastEmaModelUpdater):
     """Wrapper to adapt FastEmaModelUpdater interface to EMAModelTracker interface.
+
+    Inherits from FastEmaModelUpdater to pass isinstance checks in ema_scope.
 
     The trainer's ema_scope expects:
       - ema.cache(model.parameters())
-      - ema.copy_to(model) - copy EMA weights TO model
+      - ema.copy_to(model) - copy EMA weights TO model (1 arg)
       - ema.restore(model.parameters())
 
     But FastEmaModelUpdater has:
       - copy_to(src_model, tgt_model) - takes 2 arguments
+
+    This wrapper adapts the copy_to interface.
     """
 
     def __init__(self, ema_worker, ema_model):
+        super().__init__()  # Initialize parent's is_cached flag
         self.ema_worker = ema_worker
         self.ema_model = ema_model
 
     def cache(self, parameters, is_cpu=False):
         return self.ema_worker.cache(parameters, is_cpu)
 
-    def copy_to(self, model):
-        """Copy EMA weights to model (adapts 2-arg interface to 1-arg)."""
+    def copy_to(self, model, _tgt_model=None):
+        """Copy EMA weights to model (adapts 2-arg interface to 1-arg).
+
+        When called with 1 arg (from ema_scope): copies EMA weights to model.
+        When called with 2 args (legacy): uses original behavior.
+        """
+        if _tgt_model is not None:
+            # Legacy 2-arg call
+            return self.ema_worker.copy_to(src_model=model, tgt_model=_tgt_model)
+        # 1-arg call from ema_scope - copy EMA weights to model
         return self.ema_worker.copy_to(src_model=self.ema_model, tgt_model=model)
 
     def restore(self, parameters):
