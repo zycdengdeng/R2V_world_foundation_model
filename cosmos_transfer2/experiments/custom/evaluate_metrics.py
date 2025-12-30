@@ -402,6 +402,9 @@ def load_model(checkpoint_path: str, device: torch.device):
     # Disable EMA since we're loading EMA weights to regular model
     config.model.config.ema.enabled = False
 
+    # Disable FSDP for single-GPU evaluation
+    config.model.config.fsdp_shard_size = 1
+
     # Validate and freeze config
     config.validate()
     config.freeze()
