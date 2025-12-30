@@ -602,6 +602,25 @@ def evaluate(
     # Load model
     model, config = load_model(checkpoint_path, device)
 
+    # Initialize distributed and Megatron parallel state for single-GPU inference
+    import torch.distributed as dist
+    from megatron.core import parallel_state
+
+    if not dist.is_initialized():
+        # Initialize torch.distributed for single process
+        os.environ.setdefault('MASTER_ADDR', 'localhost')
+        os.environ.setdefault('MASTER_PORT', '12355')
+        os.environ.setdefault('RANK', '0')
+        os.environ.setdefault('WORLD_SIZE', '1')
+        dist.init_process_group(backend='nccl', rank=0, world_size=1)
+        logger.info("Initialized torch.distributed for single-GPU inference")
+
+    if not parallel_state.is_initialized():
+        parallel_state.initialize_model_parallel(
+            context_parallel_size=1,  # Single GPU, no context parallelism
+        )
+        logger.info("Initialized Megatron parallel state with context_parallel_size=1")
+
     # Initialize metric calculators
     fid_calc = FIDCalculator(device)
     lpips_calc = LPIPSCalculator(device)
