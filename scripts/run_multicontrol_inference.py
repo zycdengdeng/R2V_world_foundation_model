@@ -181,7 +181,7 @@ class MultiControlInference:
 
 
 def create_eval_dataloader():
-    """Create a dataloader for evaluation clips (075, 077)."""
+    """Create a dataloader for evaluation clips."""
     from torch.utils.data import DataLoader
     from cosmos_transfer2.experiments.multiview.zihanw_multicontrol_dataloader import (
         MultiControlMultiviewDataset,
@@ -190,12 +190,21 @@ def create_eval_dataloader():
         collate_fn,
     )
 
+    # Data directory
+    DATA_ROOT = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data"
+
+    # Eval clips for inference
+    EVAL_CLIPS = (
+        "008", "012", "022", "030", "031", "037", "043", "044", "051", "054",
+        "062", "065", "067", "072", "075", "076", "083", "084", "086", "087",
+    )
+
     dataset = MultiControlMultiviewDataset(
-        base_video_dir="/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection",
+        base_video_dir=f"{DATA_ROOT}/BlurProjection",
         control_dirs={
-            "blur": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection/control_input_blur",
-            "depth": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/DepthSparse/control_input_depth",
-            "hdmap_bbox": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/HDMapBbox/control_input_hdmap_bbox",
+            "blur": f"{DATA_ROOT}/BlurProjection/control_input_blur",
+            "depth": f"{DATA_ROOT}/DepthSparse/control_input_depth",
+            "hdmap_bbox": f"{DATA_ROOT}/HDMapBbox/control_input_hdmap_bbox",
         },
         folder_to_camera_key={f"ftheta_{camera_name}": camera_name for camera_name in DEFAULT_CAMERAS},
         resolution_hw=(720, 1280),
@@ -203,7 +212,7 @@ def create_eval_dataloader():
         single_caption_camera_name="camera_front_wide_120fov",
         selected_cameras=CAMERAS_1VIEW,  # Single view to match training
         # Only include eval clips
-        include_only_clips=("075", "077"),
+        include_only_clips=EVAL_CLIPS,
     )
 
     dataloader = DataLoader(

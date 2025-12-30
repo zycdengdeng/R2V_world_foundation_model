@@ -80,19 +80,37 @@ CAMERAS_1VIEW: tuple[str, ...] = (
     "camera_front_wide_120fov",  # Front camera only
 )
 
+# Train/Eval clip splits
+TRAIN_CLIPS = (
+    "001", "002", "003", "004", "006", "007", "009", "010", "013", "015",
+    "017", "019", "020", "024", "025", "026", "027", "028", "029", "032",
+    "033", "034", "035", "036", "038", "039", "040", "041", "042", "045",
+    "046", "047", "048", "049", "050", "052", "055", "056", "057", "058",
+    "059", "060", "061", "064", "066", "068", "069", "070", "071", "073",
+    "074", "077", "078", "079", "080", "081", "082", "085", "088", "089",
+)
+
+EVAL_CLIPS = (
+    "008", "012", "022", "030", "031", "037", "043", "044", "051", "054",
+    "062", "065", "067", "072", "075", "076", "083", "084", "086", "087",
+)
+
+# Data directory
+DATA_ROOT = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data"
+
 
 def register_singleview_no_cond_dataloader() -> None:
     """Register single-view dataloader with front camera only."""
 
     cs = ConfigStore.instance()
 
-    # Single-view dataset (front camera only)
+    # Single-view dataset (front camera only) - Training
     dataset = L(MultiControlMultiviewDataset)(
-        base_video_dir="/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection",
+        base_video_dir=f"{DATA_ROOT}/BlurProjection",
         control_dirs={
-            "blur": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection/control_input_blur",
-            "depth": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/DepthSparse/control_input_depth",
-            "hdmap_bbox": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/HDMapBbox/control_input_hdmap_bbox",
+            "blur": f"{DATA_ROOT}/BlurProjection/control_input_blur",
+            "depth": f"{DATA_ROOT}/DepthSparse/control_input_depth",
+            "hdmap_bbox": f"{DATA_ROOT}/HDMapBbox/control_input_hdmap_bbox",
         },
         folder_to_camera_key={f"ftheta_{camera_name}": camera_name for camera_name in DEFAULT_CAMERAS},
         resolution_hw=(720, 1280),
@@ -100,8 +118,8 @@ def register_singleview_no_cond_dataloader() -> None:
         single_caption_camera_name="camera_front_wide_120fov",
         # Single view: front camera only
         selected_cameras=CAMERAS_1VIEW,
-        # Exclude clips for inference/evaluation
-        exclude_clips=("075", "077"),
+        # Only include training clips
+        include_only_clips=TRAIN_CLIPS,
     )
 
     cs.store(
@@ -119,20 +137,20 @@ def register_singleview_no_cond_dataloader() -> None:
         ),
     )
 
-    # Validation dataset
+    # Validation dataset - Eval clips
     val_dataset = L(MultiControlMultiviewDataset)(
-        base_video_dir="/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection",
+        base_video_dir=f"{DATA_ROOT}/BlurProjection",
         control_dirs={
-            "blur": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/BlurProjection/control_input_blur",
-            "depth": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/DepthSparse/control_input_depth",
-            "hdmap_bbox": "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output/HDMapBbox/control_input_hdmap_bbox",
+            "blur": f"{DATA_ROOT}/BlurProjection/control_input_blur",
+            "depth": f"{DATA_ROOT}/DepthSparse/control_input_depth",
+            "hdmap_bbox": f"{DATA_ROOT}/HDMapBbox/control_input_hdmap_bbox",
         },
         folder_to_camera_key={f"ftheta_{camera_name}": camera_name for camera_name in DEFAULT_CAMERAS},
         resolution_hw=(720, 1280),
         num_video_frames=29,
         single_caption_camera_name="camera_front_wide_120fov",
         selected_cameras=CAMERAS_1VIEW,
-        include_only_clips=("075", "077"),
+        include_only_clips=EVAL_CLIPS,
     )
 
     cs.store(
@@ -263,8 +281,8 @@ zihanw_singleview_no_condition_frames = dict(
     trainer=dict(
         logging_iter=50,
         max_iter=30_000,  # Extended to 30k iterations
-        run_validation=False,  # Disable validation initially
-        validation_iter=200,
+        run_validation=True,  # Enable validation
+        validation_iter=500,  # Validate every 500 iterations
         callbacks=dict(
             heart_beat=dict(
                 save_s3=False,
@@ -285,7 +303,7 @@ zihanw_singleview_no_condition_frames = dict(
                 fps=10,
                 # Order must match hint_keys: hdmap first, then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                control_weights=[1.0],  # Test with control enabled
                 num_cond_frames=[0],  # No condition frames
                 save_s3=False,
             ),
@@ -298,7 +316,7 @@ zihanw_singleview_no_condition_frames = dict(
                 fps=10,
                 # Order must match hint_keys: hdmap first, then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Compare: no control vs with control
+                control_weights=[1.0],  # Test with control enabled
                 num_cond_frames=[0],  # No condition frames
                 save_s3=False,
             ),
