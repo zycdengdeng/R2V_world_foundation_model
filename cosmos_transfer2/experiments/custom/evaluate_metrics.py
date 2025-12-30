@@ -515,7 +515,7 @@ def run_inference(model, batch: Dict, guidance: float = 7.0, num_steps: int = 35
     Returns:
         Generated video tensor (B, C, T, H, W) with values in [0, 1]
     """
-    from cosmos_transfer2._src.transfer2_multiview.models.multiview_vid2vid_model_control_vace_rectified_flow import (
+    from cosmos_transfer2._src.transfer2_multiview.inference.inference import (
         to_model_input,
     )
 
