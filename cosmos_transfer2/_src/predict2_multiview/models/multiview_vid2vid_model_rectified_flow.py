@@ -164,7 +164,7 @@ class MultiviewVid2VidModelRectifiedFlow(Video2WorldModelRectifiedFlow):
         return x0_B_C_T_H_W, condition, epsilon_B_C_T_H_W, sigma_B_T
 
     def get_data_batch_with_latent_view_indices(self, data_batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        num_video_frames_per_view = int(data_batch["num_video_frames_per_view"].cpu().item())
+        num_video_frames_per_view = int(data_batch["num_video_frames_per_view"][0].cpu().item())  # [0] for batch_size > 1
         n_views = data_batch["view_indices"].shape[1] // num_video_frames_per_view
         view_indices_B_V_T = rearrange(data_batch["view_indices"], "B (V T) -> B V T", V=n_views)
 

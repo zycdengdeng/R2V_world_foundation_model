@@ -25,11 +25,11 @@ def sample_n_views_from_data_batch(data_batch: dict, keep_view_indices: list[int
 
     keep_view_indices = sorted(keep_view_indices)
     n_keep_views = len(keep_view_indices)
-    n_orig_views = data_batch["sample_n_views"].cpu().item()
+    n_orig_views = data_batch["sample_n_views"][0].cpu().item()  # [0] for batch_size > 1
     if n_keep_views == n_orig_views:
         log.debug("All views are requested to be kept, returning original data batch!")
         return data_batch
-    num_video_frames_per_view = data_batch["num_video_frames_per_view"].cpu().item()
+    num_video_frames_per_view = data_batch["num_video_frames_per_view"][0].cpu().item()  # [0] for batch_size > 1
 
     select_ids = []
     for view_id in keep_view_indices:
