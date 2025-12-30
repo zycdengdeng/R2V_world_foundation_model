@@ -622,19 +622,23 @@ def evaluate(
         logger.info("Initialized Megatron parallel state with context_parallel_size=1")
 
     # Set cp_mesh to None for single-GPU text encoder inference
+    # Structure: model.text_encoder.model (QwenVLBaseModel) -> model.text_encoder.model.model (Qwen2VLModel)
     if hasattr(model, 'text_encoder') and model.text_encoder is not None:
-        if hasattr(model.text_encoder, 'model') and model.text_encoder.model is not None:
-            # Use set_cp_mesh method if available (Qwen2VLModel has this method)
-            if hasattr(model.text_encoder.model, 'set_cp_mesh'):
-                model.text_encoder.model.set_cp_mesh(None)
-                logger.info("Set text_encoder.model.cp_mesh = None via set_cp_mesh() for single-GPU inference")
-            else:
-                # Fallback: try direct attribute setting
-                try:
-                    object.__setattr__(model.text_encoder.model, 'cp_mesh', None)
-                    logger.info("Set text_encoder.model.cp_mesh = None for single-GPU inference")
-                except Exception as e:
-                    logger.warning(f"Could not set cp_mesh on text_encoder.model: {e}")
+        te = model.text_encoder
+        # TextEncoder.model is QwenVLBaseModel, QwenVLBaseModel.model is Qwen2VLModel
+        if hasattr(te, 'model') and te.model is not None:
+            qwen_vl_base = te.model  # QwenVLBaseModel
+            if hasattr(qwen_vl_base, 'model') and qwen_vl_base.model is not None:
+                inner_model = qwen_vl_base.model  # Qwen2VLModel or Qwen2_5_VLModel
+                if hasattr(inner_model, 'set_cp_mesh'):
+                    inner_model.set_cp_mesh(None)
+                    logger.info("Set text_encoder.model.model.cp_mesh = None via set_cp_mesh() for single-GPU inference")
+                elif hasattr(inner_model, 'cp_mesh'):
+                    try:
+                        inner_model.cp_mesh = None
+                        logger.info("Set text_encoder.model.model.cp_mesh = None for single-GPU inference")
+                    except Exception as e:
+                        logger.warning(f"Could not set cp_mesh: {e}")
 
     # Initialize metric calculators
     fid_calc = FIDCalculator(device)
