@@ -188,6 +188,7 @@ zihanw_singleview_no_condition_frames = dict(
         {"override /ckpt_type": "dcp"},
         {"override /optimizer": "fusedadamw"},
         {"override /tokenizer": "wan2pt1_tokenizer"},
+        {"override /ema": "power"},  # Enable EMA for EMA sampling callbacks
         # IMPORTANT: NO load_base_model_callbacks! It uses DCP format which fails with .pt files
         {"override /callbacks": ["basic", "wandb", "cluster_speed"]},
         "_self_",
@@ -307,7 +308,19 @@ zihanw_singleview_no_condition_frames = dict(
                 num_cond_frames=[0],  # No condition frames
                 save_s3=False,
             ),
-            # Note: every_n_sample_ema removed - requires EMA to be enabled in model config
+            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=500,  # Visualize every 500 iterations
+                is_x0=False,
+                is_ema=True,  # Use EMA weights for sampling
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                # Order must match hint_keys: hdmap first, then blur, depth
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_s3=False,
+            ),
             wandb=dict(
                 save_s3=False,
             ),
