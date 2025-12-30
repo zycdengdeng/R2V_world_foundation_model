@@ -351,20 +351,25 @@ def compute_text_embeddings_online_multiview_single_caption(
     n_views = data_batch[model.input_data_key].shape[2] // num_video_frames_per_view
     B, _, _, _, _ = data_batch[model.input_data_key].shape
 
-    # compute prompt embeddings
-    if len(data_batch["ai_caption"]) != 1:
-        raise NotImplementedError(f"Expected batch size of 1, got {len(data_batch['ai_caption'])}")
+    # compute prompt embeddings - support batch_size > 1
+    # Each batch element has a single caption that applies to the front camera view
+    batch_size = len(data_batch["ai_caption"])
 
-    if len(data_batch["ai_caption"][0]) != 1:
-        raise ValueError(f"Expected a single caption, got {len(data_batch['ai_caption'][0])}")
+    # Collect captions from all batch elements
+    captions_list = []
+    for i_b in range(batch_size):
+        if len(data_batch["ai_caption"][i_b]) != 1:
+            raise ValueError(f"Expected a single caption per batch element, got {len(data_batch['ai_caption'][i_b])}")
+        caption = data_batch["ai_caption"][i_b][0]
+        assert isinstance(caption, str)
+        captions_list.append(caption)
 
-    caption = data_batch["ai_caption"][0][0]
-    assert isinstance(caption, str)
+    # Compute text embeddings for all captions in batch
     view0_text_embeddings_B_L_D = model.text_encoder.compute_text_embeddings_online(
-        data_batch={model.input_caption_key: [caption]},
+        data_batch={model.input_caption_key: captions_list},
         input_caption_key=model.input_caption_key,
     )
-    assert view0_text_embeddings_B_L_D.shape[0] == 1
+    assert view0_text_embeddings_B_L_D.shape[0] == batch_size
     assert view0_text_embeddings_B_L_D.shape[1] == 512, (
         f"view0_text_embeddings should be of shape (B, 512, D), got {view0_text_embeddings_B_L_D.shape}"
     )
@@ -406,22 +411,28 @@ def compute_text_embeddings_online_multiview_multiple_captions(
     n_views = data_batch[model.input_data_key].shape[2] // num_video_frames_per_view
     B, _, _, _, _ = data_batch[model.input_data_key].shape
 
-    # compute each view's caption separately
-    if not len(data_batch["ai_caption"]) == 1:
-        raise NotImplementedError(f"Expected batch size of 1, got {len(data_batch['ai_caption'])}")
+    # compute each view's caption separately - support batch_size > 1
+    batch_size = len(data_batch["ai_caption"])
 
-    captions = data_batch["ai_caption"][0]
-    if len(captions) != n_views:
-        raise ValueError(f"Expected {n_views} captions, got {len(captions)}: {captions}")
-    view_text_embeddings = []
-    for caption in captions:
-        data_batch_per_view = {model.input_caption_key: [caption]}
-        view_text_embedding = model.text_encoder.compute_text_embeddings_online(
-            data_batch_per_view, model.input_caption_key
-        )
-        view_text_embeddings.append(view_text_embedding)
+    # Process each batch element
+    all_batch_view_embeddings = []
+    for i_b in range(batch_size):
+        captions = data_batch["ai_caption"][i_b]
+        if len(captions) != n_views:
+            raise ValueError(f"Expected {n_views} captions, got {len(captions)}: {captions}")
+        view_text_embeddings = []
+        for caption in captions:
+            data_batch_per_view = {model.input_caption_key: [caption]}
+            view_text_embedding = model.text_encoder.compute_text_embeddings_online(
+                data_batch_per_view, model.input_caption_key
+            )
+            view_text_embeddings.append(view_text_embedding)
+        # Stack views for this batch element: (1, n_views, L, D)
+        batch_view_embeddings = torch.stack(view_text_embeddings, dim=1)
+        all_batch_view_embeddings.append(batch_view_embeddings)
 
-    view_text_embeddings_B_V_L_D = torch.stack(view_text_embeddings, dim=1)
+    # Concatenate all batch elements: (B, n_views, L, D)
+    view_text_embeddings_B_V_L_D = torch.cat(all_batch_view_embeddings, dim=0)
     assert view_text_embeddings_B_V_L_D.shape[:3] == (
         B,
         n_views,
@@ -452,7 +463,8 @@ def compute_text_embeddings_online_multiview_multiple_captions(
 def compute_text_embeddings_online_multiview(
     model, data_batch: dict[str, torch.Tensor]
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    captions = data_batch["ai_caption"][0]
+    # Check first batch element to determine caption mode (all elements should have same structure)
+    captions_first = data_batch["ai_caption"][0]
     is_preprocessed = IS_PREPROCESSED_KEY in data_batch and data_batch[IS_PREPROCESSED_KEY] is True
     num_video_frames_per_view = (
         model.tokenizer.get_pixel_num_frames(model.state_t)
@@ -466,8 +478,8 @@ def compute_text_embeddings_online_multiview(
         else:
             num_video_frames_per_view = int(num_video_frames_per_view.cpu().item())
     n_views = data_batch[model.input_data_key].shape[2] // num_video_frames_per_view
-    assert len(captions) == 1 or len(captions) == n_views, f"Expected 1 or {n_views} captions, got {len(captions)}"
-    if len(captions) == 1:
+    assert len(captions_first) == 1 or len(captions_first) == n_views, f"Expected 1 or {n_views} captions, got {len(captions_first)}"
+    if len(captions_first) == 1:
         return compute_text_embeddings_online_multiview_single_caption(model, data_batch)
     else:
         return compute_text_embeddings_online_multiview_multiple_captions(model, data_batch)
