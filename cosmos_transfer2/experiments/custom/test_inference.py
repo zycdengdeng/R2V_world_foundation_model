@@ -28,7 +28,6 @@ def main():
     logger.info("Step 1: Import modules")
     logger.info("=" * 60)
 
-    from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
     from cosmos_transfer2.experiments.custom.custom_multi_control_experiment import (
         BLUR_DATASET_DIR,
         DEPTH_DATASET_DIR,
@@ -43,20 +42,66 @@ def main():
     logger.info("Imports successful")
 
     logger.info("=" * 60)
-    logger.info("Step 2: Load model from checkpoint")
+    logger.info("Step 2: Load model from checkpoint (DCP format)")
     logger.info(f"Checkpoint: {args.ckpt_path}")
     logger.info(f"Experiment: {args.experiment}")
     logger.info("=" * 60)
 
     try:
-        model, config = load_model_from_checkpoint(
-            experiment_name=args.experiment,
-            s3_checkpoint_dir=args.ckpt_path,
-            config_file="cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/config.py",
-            load_ema_to_reg=True,
+        import importlib
+        from pathlib import Path
+        from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
+        from cosmos_transfer2._src.imaginaire.utils.config_helper import get_config_module, override
+        from cosmos_transfer2._src.predict2.checkpointer.dcp import (
+            DefaultLoadPlanner,
+            ModelWrapper,
+            dcp_load_state_dict,
         )
-        logger.info("Model loaded successfully!")
+        from torch.distributed.checkpoint import FileSystemReader
+
+        # Step 2a: Load config
+        logger.info("Step 2a: Loading config...")
+        config_file = "cosmos_transfer2/_src/transfer2_multiview/configs/vid2vid_transfer/config.py"
+        config_module = get_config_module(config_file)
+        config = importlib.import_module(config_module).make_config()
+        config = override(config, ["--", f"experiment={args.experiment}"])
+
+        # Disable EMA (we'll load EMA weights to regular model)
+        config.model.config.ema.enabled = False
+        # Disable FSDP for single GPU
+        config.model.config.fsdp_shard_size = 1
+
+        config.validate()
+        config.freeze()
+        logger.info("Config loaded")
+
+        # Step 2b: Instantiate model
+        logger.info("Step 2b: Instantiating model...")
+        model = instantiate(config.model).cuda()
+        model.on_train_start()
+        logger.info(f"Model instantiated: {type(model)}")
+
+        # Step 2c: Load DCP checkpoint
+        logger.info("Step 2c: Loading DCP checkpoint...")
+        ckpt_path = Path(args.ckpt_path)
+        model_ckpt_path = ckpt_path / "model"
+
+        if not model_ckpt_path.exists():
+            raise FileNotFoundError(f"Model checkpoint not found: {model_ckpt_path}")
+
+        # Create model wrapper for loading EMA weights to regular model
+        model_wrapper = ModelWrapper(model, load_ema_to_reg=True)
+        state_dict = model_wrapper.state_dict()
+
+        # Load using FileSystemReader
+        storage_reader = FileSystemReader(str(model_ckpt_path))
+        load_planner = DefaultLoadPlanner(allow_partial_load=True)
+        dcp_load_state_dict(state_dict, storage_reader, load_planner)
+        model_wrapper.load_state_dict(state_dict)
+
+        logger.info("DCP checkpoint loaded successfully!")
         logger.info(f"Model type: {type(model)}")
+
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         import traceback
