@@ -208,9 +208,9 @@ zihanw_singleview_no_condition_frames = dict(
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
     ),
-    # Optimizer config (same as classmate's)
+    # Optimizer config
     optimizer=dict(
-        lr=3e-5,  # Reduced for smaller dataset
+        lr=5e-5,  # Slightly increased - more data reduces overfitting risk
         weight_decay=1e-3,
         betas=[0.9, 0.999],
     ),
@@ -218,8 +218,8 @@ zihanw_singleview_no_condition_frames = dict(
     scheduler=dict(
         f_max=[1.0],
         f_min=[0.1],
-        warm_up_steps=[250],
-        cycle_lengths=[30000],  # Match max_iter
+        warm_up_steps=[500],  # Increased for larger dataset
+        cycle_lengths=[20000],  # Match max_iter
     ),
     model=dict(
         config=dict(
@@ -281,7 +281,7 @@ zihanw_singleview_no_condition_frames = dict(
     ),
     trainer=dict(
         logging_iter=50,
-        max_iter=30_000,  # Extended to 30k iterations
+        max_iter=20_000,  # 20k iterations for larger dataset
         run_validation=True,  # Enable validation
         validation_iter=500,  # Validate every 500 iterations
         callbacks=dict(
