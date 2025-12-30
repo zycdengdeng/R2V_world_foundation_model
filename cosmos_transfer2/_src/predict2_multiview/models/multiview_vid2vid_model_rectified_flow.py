@@ -547,7 +547,7 @@ def preprocess_databatch(
                 dist.broadcast(train_sample_n_views_tensor, src=0)
                 train_sample_n_views = train_sample_n_views_tensor[0].cpu().item()
 
-        n_views = data_batch["sample_n_views"].cpu().item()
+        n_views = data_batch["sample_n_views"][0].cpu().item()  # Take first element for batch_size > 1
         log.debug(f"Sampling {train_sample_n_views} views out of {n_views}")
         available_view_indices = list(range(n_views))
         if data_batch["front_cam_view_idx_sample_position"][0] is not None and train_sample_n_views < n_views:
