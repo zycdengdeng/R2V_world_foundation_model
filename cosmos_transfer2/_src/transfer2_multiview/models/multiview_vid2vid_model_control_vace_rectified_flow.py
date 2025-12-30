@@ -63,6 +63,33 @@ class MultiviewControlVideo2WorldRectifiedFlowConfig(*_base_classes):
     conditional_frames_probs: Optional[Dict[int, float]] = None  # Probability distribution for conditional frames
 
 
+class _EmaWorkerWrapper:
+    """Wrapper to adapt FastEmaModelUpdater interface to EMAModelTracker interface.
+
+    The trainer's ema_scope expects:
+      - ema.cache(model.parameters())
+      - ema.copy_to(model) - copy EMA weights TO model
+      - ema.restore(model.parameters())
+
+    But FastEmaModelUpdater has:
+      - copy_to(src_model, tgt_model) - takes 2 arguments
+    """
+
+    def __init__(self, ema_worker, ema_model):
+        self.ema_worker = ema_worker
+        self.ema_model = ema_model
+
+    def cache(self, parameters, is_cpu=False):
+        return self.ema_worker.cache(parameters, is_cpu)
+
+    def copy_to(self, model):
+        """Copy EMA weights to model (adapts 2-arg interface to 1-arg)."""
+        return self.ema_worker.copy_to(src_model=self.ema_model, tgt_model=model)
+
+    def restore(self, parameters):
+        return self.ema_worker.restore(parameters)
+
+
 class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRectifiedFlow):
     def __init__(self, config: MultiviewControlVideo2WorldRectifiedFlowConfig, *args, **kwargs):
         self.is_new_training = True
@@ -86,6 +113,21 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         self.neg_text_embeddings = None
         if self.config.text_encoder_config is not None and self.config.text_encoder_config.compute_online:
             compute_empty_and_negative_text_embeddings(self)
+
+    @property
+    def ema(self):
+        """Wrapper for net_ema_worker to satisfy trainer's ema_scope compatibility.
+
+        The trainer uses imaginaire/utils/ema.py's ema_scope which expects model.ema
+        with a copy_to(model) method, but FastEmaModelUpdater.copy_to takes two args.
+        This wrapper adapts the interface.
+        """
+        if not hasattr(self, "_ema_wrapper"):
+            self._ema_wrapper = None
+        if self._ema_wrapper is None and hasattr(self, "net_ema_worker") and hasattr(self, "net_ema"):
+            # Create a wrapper that adapts FastEmaModelUpdater interface
+            self._ema_wrapper = _EmaWorkerWrapper(self.net_ema_worker, self.net_ema)
+        return self._ema_wrapper
 
     @torch.no_grad()
     def encode(self, state: torch.Tensor) -> torch.Tensor:
