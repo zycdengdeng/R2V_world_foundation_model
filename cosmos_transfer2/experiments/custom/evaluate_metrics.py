@@ -373,24 +373,92 @@ def load_test_dataset():
 # ============================================================================
 
 def load_model(checkpoint_path: str, device: torch.device):
-    """Load the trained model from checkpoint."""
-    from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
+    """Load the trained model from checkpoint.
+
+    Handles both .pt files and DCP (Distributed Checkpoint) directories.
+    """
+    import importlib
+    import os
+    import torch.distributed.checkpoint as dcp
+    from torch.distributed.checkpoint import FileSystemReader
+
+    from cosmos_transfer2._src.imaginaire.lazy_config import instantiate
+    from cosmos_transfer2._src.imaginaire.utils import misc
+    from cosmos_transfer2._src.imaginaire.utils.config_helper import get_config_module, override
+    from cosmos_transfer2._src.predict2.checkpointer.dcp import DefaultLoadPlanner, ModelWrapper
 
     # Import custom experiment to register it
     from cosmos_transfer2.experiments.custom import custom_multi_control_experiment
 
-    model, config = load_model_from_checkpoint(
-        experiment_name="custom_multi_control_post_train",
-        s3_checkpoint_dir=checkpoint_path,
-        config_file="cosmos_transfer2/experiments/custom/config.py",
-        load_ema_to_reg=True,
-        experiment_opts=[],
-    )
+    # Load config
+    config_file = "cosmos_transfer2/experiments/custom/config.py"
+    config_module = get_config_module(config_file)
+    config = importlib.import_module(config_module).make_config()
+    config = override(config, ["--", "experiment=custom_multi_control_post_train"])
+
+    # Override checkpoint path
+    config.checkpoint.load_path = str(checkpoint_path)
+
+    # Disable EMA since we're loading EMA weights to regular model
+    config.model.config.ema.enabled = False
+
+    # Validate and freeze config
+    config.validate()
+    config.freeze()
+    misc.set_random_seed(seed=42, by_rank=True)
+
+    # Set up CUDA
+    torch.backends.cudnn.deterministic = config.trainer.cudnn.deterministic
+    torch.backends.cudnn.benchmark = config.trainer.cudnn.benchmark
+    torch.backends.cudnn.allow_tf32 = torch.backends.cuda.matmul.allow_tf32 = True
+
+    # Instantiate model
+    logger.info("Instantiating model...")
+    with misc.timer("instantiate model"):
+        model = instantiate(config.model).cuda()
+        model.on_train_start()
+
+    # Determine checkpoint format
+    is_dcp = os.path.isdir(checkpoint_path)
+
+    if is_dcp:
+        # Load DCP checkpoint
+        logger.info(f"Loading DCP checkpoint from {checkpoint_path}")
+
+        # The model/ subdirectory contains the model state
+        model_ckpt_path = os.path.join(checkpoint_path, "model")
+        if not os.path.isdir(model_ckpt_path):
+            model_ckpt_path = checkpoint_path
+
+        # Create model wrapper for loading EMA weights to regular model
+        model_wrapper = ModelWrapper(model, load_ema_to_reg=True)
+        _state_dict = model_wrapper.state_dict()
+
+        # Load using DCP
+        storage_reader = FileSystemReader(model_ckpt_path)
+        load_planner = DefaultLoadPlanner()
+
+        dcp.load(
+            _state_dict,
+            storage_reader=storage_reader,
+            planner=load_planner,
+        )
+
+        # Apply loaded state dict to model
+        from torch.distributed.checkpoint.state_dict import set_model_state_dict
+        set_model_state_dict(model, _state_dict)
+
+        logger.info(f"Successfully loaded DCP checkpoint from {model_ckpt_path}")
+    else:
+        # Load .pt checkpoint
+        logger.info(f"Loading .pt checkpoint from {checkpoint_path}")
+        state_dict = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        model.load_state_dict(state_dict, strict=False)
 
     model.eval()
     model.to(device)
 
-    logger.info(f"Loaded model from {checkpoint_path}")
+    logger.info(f"Model loaded and ready for evaluation")
     return model, config
 
 
