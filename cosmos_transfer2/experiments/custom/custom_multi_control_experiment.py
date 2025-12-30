@@ -182,7 +182,7 @@ def register_custom_dataloader() -> None:
             dataset=dataset,
             sampler=L(get_sampler)(dataset=dataset) if dist.is_initialized() else None,
             collate_fn=collate_fn,
-            batch_size=2,  # Increased from 1 for more stable gradients
+            batch_size=1,  # Keep batch_size=1 to avoid OOM, use grad_accum_iter=2 instead
             drop_last=True,
             num_workers=4,
             pin_memory=True,
@@ -298,6 +298,7 @@ custom_multi_control_post_train = dict(
     ),
     trainer=dict(
         logging_iter=20,  # Log every 20 iterations
+        grad_accum_iter=2,  # Accumulate gradients over 2 steps (effective batch_size=2)
         max_iter=5000,  # Fine-tuning for 5000 iterations with reset scheduler
         callbacks=dict(
             heart_beat=dict(save_s3=False),
