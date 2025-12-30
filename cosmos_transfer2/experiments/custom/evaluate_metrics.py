@@ -376,7 +376,7 @@ def load_model(checkpoint_path: str, device: torch.device):
     """Load the trained model from checkpoint."""
     from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
 
-    # Register custom experiment
+    # Import custom experiment to register it
     from cosmos_transfer2.experiments.custom import custom_multi_control_experiment
 
     model, config = load_model_from_checkpoint(
