@@ -77,8 +77,8 @@ class MultiControlInference:
         self.process_group = None
         self.rank0 = True
 
-        if "RANK" in os.environ:
-            self._init_distributed()
+        # Always initialize parallel state (required for model.generate_samples_from_batch)
+        self._init_parallel_state()
 
         # Load the model and config
         logger.info(f"Loading model from checkpoint: {ckpt_path}")
@@ -107,17 +107,31 @@ class MultiControlInference:
 
         logger.info("Model loaded successfully")
 
-    def _init_distributed(self):
-        """Initialize distributed processing for context parallelism."""
+    def _init_parallel_state(self):
+        """Initialize parallel state for both single and multi-GPU inference."""
         from megatron.core import parallel_state
 
-        distributed.init()
-        parallel_state.initialize_model_parallel(
-            context_parallel_size=self.context_parallel_size,
-        )
-        self.process_group = parallel_state.get_context_parallel_group()
-        logger.info(f"Initialized context parallel with size {self.context_parallel_size}")
-        logger.info(f"Current rank: {distributed.get_rank()}, World size: {distributed.get_world_size()}")
+        if "RANK" in os.environ:
+            # Multi-GPU: use distributed initialization
+            distributed.init()
+            parallel_state.initialize_model_parallel(
+                context_parallel_size=self.context_parallel_size,
+            )
+            self.process_group = parallel_state.get_context_parallel_group()
+            self.rank0 = distributed.get_rank() == 0
+            logger.info(f"Initialized distributed context parallel with size {self.context_parallel_size}")
+            logger.info(f"Current rank: {distributed.get_rank()}, World size: {distributed.get_world_size()}")
+        else:
+            # Single GPU: initialize minimal parallel state
+            import torch.distributed as dist
+            os.environ["MASTER_ADDR"] = "localhost"
+            os.environ["MASTER_PORT"] = "12355"
+            os.environ["RANK"] = "0"
+            os.environ["WORLD_SIZE"] = "1"
+            dist.init_process_group(backend="nccl", rank=0, world_size=1)
+            parallel_state.initialize_model_parallel(context_parallel_size=1)
+            self.process_group = parallel_state.get_context_parallel_group()
+            logger.info("Initialized single-GPU parallel state")
 
     def generate_from_batch(
         self,
