@@ -624,8 +624,17 @@ def evaluate(
     # Set cp_mesh to None for single-GPU text encoder inference
     if hasattr(model, 'text_encoder') and model.text_encoder is not None:
         if hasattr(model.text_encoder, 'model') and model.text_encoder.model is not None:
-            model.text_encoder.model.cp_mesh = None
-            logger.info("Set text_encoder.model.cp_mesh = None for single-GPU inference")
+            # Use set_cp_mesh method if available (Qwen2VLModel has this method)
+            if hasattr(model.text_encoder.model, 'set_cp_mesh'):
+                model.text_encoder.model.set_cp_mesh(None)
+                logger.info("Set text_encoder.model.cp_mesh = None via set_cp_mesh() for single-GPU inference")
+            else:
+                # Fallback: try direct attribute setting
+                try:
+                    object.__setattr__(model.text_encoder.model, 'cp_mesh', None)
+                    logger.info("Set text_encoder.model.cp_mesh = None for single-GPU inference")
+                except Exception as e:
+                    logger.warning(f"Could not set cp_mesh on text_encoder.model: {e}")
 
     # Initialize metric calculators
     fid_calc = FIDCalculator(device)
