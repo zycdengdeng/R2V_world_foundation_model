@@ -433,23 +433,39 @@ def load_model(checkpoint_path: str, device: torch.device):
         if not os.path.isdir(model_ckpt_path):
             model_ckpt_path = checkpoint_path
 
-        # Create model wrapper for loading EMA weights to regular model
-        model_wrapper = ModelWrapper(model, load_ema_to_reg=True)
-        _state_dict = model_wrapper.state_dict()
-
-        # Load using DCP
+        # Load checkpoint state dict
         storage_reader = FileSystemReader(model_ckpt_path)
         load_planner = DefaultLoadPlanner()
 
+        # Get the model's net state dict structure for loading
+        net_state_dict = {}
+        for k, v in model.net.state_dict().items():
+            # Map model keys to checkpoint keys (net_ema. prefix for EMA weights)
+            ckpt_key = f"net_ema.{k}"
+            net_state_dict[ckpt_key] = torch.zeros_like(v)
+
+        # Load from checkpoint
         dcp.load(
-            _state_dict,
+            net_state_dict,
             storage_reader=storage_reader,
             planner=load_planner,
         )
 
-        # Apply loaded state dict to model
-        from torch.distributed.checkpoint.state_dict import set_model_state_dict
-        set_model_state_dict(model, _state_dict)
+        # Remap keys: remove net_ema. prefix
+        remapped_state_dict = {}
+        for k, v in net_state_dict.items():
+            if k.startswith("net_ema."):
+                new_key = k[len("net_ema."):]
+                remapped_state_dict[new_key] = v
+            else:
+                remapped_state_dict[k] = v
+
+        # Load into model.net with strict=False
+        missing, unexpected = model.net.load_state_dict(remapped_state_dict, strict=False)
+        if missing:
+            logger.warning(f"Missing keys (first 5): {missing[:5]}")
+        if unexpected:
+            logger.warning(f"Unexpected keys (first 5): {unexpected[:5]}")
 
         logger.info(f"Successfully loaded DCP checkpoint from {model_ckpt_path}")
     else:
