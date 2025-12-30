@@ -259,6 +259,16 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
 
         assert self.config.net.vace_has_mask is False, "VACE has mask is not yetsupported for multiview control"
 
+        # Get per-control weights (list) or single weight (scalar)
+        control_weight = data_batch.get(CONTROL_WEIGHT_KEY, [1.0] * len(self.hint_keys))
+        if isinstance(control_weight, (int, float)):
+            control_weight = [control_weight] * len(self.hint_keys)
+        elif len(control_weight) == 1:
+            control_weight = control_weight * len(self.hint_keys)
+        assert len(control_weight) == len(self.hint_keys), (
+            f"control_weight length {len(control_weight)} != hint_keys length {len(self.hint_keys)}"
+        )
+
         # Combined encoding of raw state and control inputs
         num_modalities = 0
         raw_and_control_inputs = [raw_state]
@@ -275,11 +285,13 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         zero_latent_state = torch.zeros_like(latent_state).to(**self.tensor_kwargs)
 
         key_id = 1
-        for hint_key in self.hint_keys:
-            log.debug(f"hint_key: {hint_key}")
+        for hi, hint_key in enumerate(self.hint_keys):
+            log.debug(f"hint_key: {hint_key}, weight: {control_weight[hi]}")
             if getattr(condition, hint_key, None) is not None:
-                log.debug(f"Adding control input for {hint_key}")
-                latent_control_input.append(encoded_tensors[key_id])
+                log.debug(f"Adding control input for {hint_key} with weight {control_weight[hi]}")
+                # Apply per-control weight before concatenation
+                weighted_control = encoded_tensors[key_id] * control_weight[hi]
+                latent_control_input.append(weighted_control)
                 key_id += 1
             else:
                 latent_control_input.append(zero_latent_state)
@@ -299,7 +311,7 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
         )
         condition = condition.set_control_condition(
             latent_control_input=latent_control_input,
-            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
+            control_weight=1.0,  # Per-control weights already applied in get_data_and_condition
         )
         return raw_state, latent_state, condition
 
@@ -380,11 +392,11 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
 
         condition = condition.set_control_condition(
             latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
-            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
+            control_weight=1.0,  # Per-control weights already applied in get_data_and_condition
         )
         uncondition = uncondition.set_control_condition(
             latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
-            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
+            control_weight=1.0,  # Per-control weights already applied in get_data_and_condition
         )
 
         _, condition, _, _ = self.broadcast_split_for_model_parallelsim(x0, condition, None, None)
@@ -482,11 +494,11 @@ class MultiviewControlVideo2WorldModelRectifiedFlow(ControlVideo2WorldModelRecti
 
         condition = condition.set_control_condition(
             latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
-            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
+            control_weight=1.0,  # Per-control weights already applied in get_data_and_condition
         )
         uncondition = uncondition.set_control_condition(
             latent_control_input=data_batch_condition.latent_control_input.to(self.tensor_kwargs["device"]),
-            control_weight=data_batch.get(CONTROL_WEIGHT_KEY, 1.0),
+            control_weight=1.0,  # Per-control weights already applied in get_data_and_condition
         )
 
         _, condition, _, _ = self.broadcast_split_for_model_parallelsim(x0, condition, None, None)

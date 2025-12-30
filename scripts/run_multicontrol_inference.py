@@ -248,11 +248,24 @@ def parse_arguments():
     parser.add_argument("--num_steps", type=int, default=35, help="Number of diffusion steps")
     parser.add_argument("--fps", type=int, default=10, help="FPS for saved videos")
     parser.add_argument("--max_samples", type=int, default=100, help="Maximum samples to generate")
+    # Per-control weights (order: hdmap, blur, depth - matching hint_keys="hdmap_blur_depth")
     parser.add_argument(
-        "--control_weight",
+        "--hdmap_weight",
         type=float,
         default=1.0,
-        help="Control weight for all control inputs (0.0-1.0). Multiview architecture uses a single merged control branch. Default: 1.0",
+        help="Weight for hdmap control (0.0-1.0). Default: 1.0",
+    )
+    parser.add_argument(
+        "--blur_weight",
+        type=float,
+        default=1.0,
+        help="Weight for blur control (0.0-1.0). Default: 1.0",
+    )
+    parser.add_argument(
+        "--depth_weight",
+        type=float,
+        default=1.0,
+        help="Weight for depth control (0.0-1.0). Default: 1.0",
     )
     return parser.parse_args()
 
@@ -317,10 +330,11 @@ def main():
         # Set number of conditional frames (0 = unconditional)
         batch["num_conditional_frames"] = 0
 
-        # Set control weight (single float for merged multiview control branch)
-        batch["control_weight"] = args.control_weight
+        # Set per-control weights (order: hdmap, blur, depth - matching hint_keys)
+        control_weights = [args.hdmap_weight, args.blur_weight, args.depth_weight]
+        batch["control_weight"] = control_weights
         if inference.rank0:
-            logger.info(f"Control weight: {args.control_weight}")
+            logger.info(f"Control weights - hdmap: {args.hdmap_weight}, blur: {args.blur_weight}, depth: {args.depth_weight}")
 
         # Generate video
         video = inference.generate_from_batch(
