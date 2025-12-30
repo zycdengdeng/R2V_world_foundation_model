@@ -438,8 +438,11 @@ def load_model(checkpoint_path: str, device: torch.device):
         load_planner = DefaultLoadPlanner()
 
         # Get the model's net state dict structure for loading
+        # Skip _extra_state keys (TransformerEngine FP8 metadata, not needed for inference)
         net_state_dict = {}
         for k, v in model.net.state_dict().items():
+            if "_extra_state" in k:
+                continue  # Skip TransformerEngine extra state
             # Map model keys to checkpoint keys (net_ema. prefix for EMA weights)
             ckpt_key = f"net_ema.{k}"
             net_state_dict[ckpt_key] = torch.zeros_like(v)
@@ -451,17 +454,21 @@ def load_model(checkpoint_path: str, device: torch.device):
             planner=load_planner,
         )
 
-        # Remap keys: remove net_ema. prefix
+        # Remap keys: remove net_ema. prefix, skip _extra_state
         remapped_state_dict = {}
         for k, v in net_state_dict.items():
+            if "_extra_state" in k:
+                continue  # Skip TransformerEngine extra state
             if k.startswith("net_ema."):
                 new_key = k[len("net_ema."):]
                 remapped_state_dict[new_key] = v
             else:
                 remapped_state_dict[k] = v
 
-        # Load into model.net with strict=False
+        # Load into model.net with strict=False (will have missing _extra_state keys, that's OK)
         missing, unexpected = model.net.load_state_dict(remapped_state_dict, strict=False)
+        # Filter out _extra_state from missing keys for cleaner logging
+        missing = [k for k in missing if "_extra_state" not in k]
         if missing:
             logger.warning(f"Missing keys (first 5): {missing[:5]}")
         if unexpected:
