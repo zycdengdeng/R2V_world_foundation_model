@@ -41,28 +41,57 @@ class Config(config.Config):
             {"net": "cosmos_v1_2B_multiview_control"},
             {"optimizer": "fusedadamw"},
             {"scheduler": "cosine"},
-            {"callbacks": ["basic"]},
+            {"callbacks": "basic"},
             {"ckpt_type": "dcp"},
             {"tokenizer": "wan2pt1_tokenizer"},
             {"conditioner": "multi_view_video_prediction_control"},
+            {"ema": "power"},
+            {"checkpoint": "s3"},
+            {"experiment": None},
         ]
     )
 
 
-# Register all default config groups
-register_checkpoint()
-register_ckpt_type()
-register_ema()
-register_optimizer()
-register_scheduler()
-register_tokenizer()
-register_callbacks()
-register_conditioner()
-register_dataloaders()
-register_dataloader_local()
-register_model()
-register_net()
+def make_config() -> Config:
+    """Create and return the config object for model loading."""
+    c = Config(
+        model=None,
+        optimizer=None,
+        scheduler=None,
+        dataloader_train=None,
+        dataloader_val=None,
+    )
 
-# Import custom experiment configurations
-# This registers the custom_multi_control_post_train experiment
-from cosmos_transfer2.experiments.custom import custom_multi_control_experiment
+    # Set up job defaults
+    c.job.project = "cosmos_transfer2_custom"
+    c.job.group = "eval"
+    c.job.name = "eval_${now:%Y-%m-%d}_${now:%H-%M-%S}"
+
+    # Set up trainer defaults
+    c.trainer.type = Trainer
+    c.trainer.straggler_detection.enabled = False
+    c.trainer.max_iter = 400_000
+    c.trainer.logging_iter = 100
+    c.trainer.validation_iter = 100
+    c.trainer.run_validation = False
+    c.trainer.callbacks = None
+
+    # Register all config groups
+    register_checkpoint()
+    register_ckpt_type()
+    register_ema()
+    register_callbacks()
+    register_optimizer()
+    register_scheduler()
+    register_tokenizer()
+    register_dataloaders()
+    register_dataloader_local()
+    register_conditioner()
+    register_model()
+    register_net()
+
+    # Import custom experiment configurations
+    # This registers the custom_multi_control_post_train experiment
+    import_all_modules_from_package("cosmos_transfer2.experiments.custom", reload=True)
+
+    return c
