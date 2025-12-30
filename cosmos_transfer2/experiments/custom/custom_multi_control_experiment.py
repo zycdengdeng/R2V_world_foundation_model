@@ -182,7 +182,7 @@ def register_custom_dataloader() -> None:
             dataset=dataset,
             sampler=L(get_sampler)(dataset=dataset) if dist.is_initialized() else None,
             collate_fn=collate_fn,
-            batch_size=1,
+            batch_size=2,  # Increased from 1 for more stable gradients
             drop_last=True,
             num_workers=4,
             pin_memory=True,
@@ -223,21 +223,21 @@ custom_multi_control_post_train = dict(
         save_iter=200,  # Save every 200 iterations
         # Resume from 5000 iter checkpoint
         load_path="/mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20251226_155343/checkpoints/iter_000005000",
-        load_training_state=True,  # Resume optimizer/scheduler/trainer state
+        load_training_state=False,  # Reset scheduler to get higher learning rate
         strict_resume=True,  # Strict resume from our own checkpoint
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
     ),
     optimizer=dict(
-        lr=3e-5,  # Reduced for smaller dataset (was 8.63e-5)
+        lr=1e-5,  # Lower peak for fine-tuning stage
         weight_decay=1e-3,
         betas=[0.9, 0.999],
     ),
     scheduler=dict(
         f_max=[1.0],  # Use lr directly as max
-        f_min=[0.1],  # Decay to 3e-6 at end
-        warm_up_steps=[250],  # 5% of training (already completed)
-        cycle_lengths=[10000],  # Extended to 10000 iterations
+        f_min=[0.1],  # Decay to 1e-6 at end
+        warm_up_steps=[100],  # Shorter warmup for fine-tuning
+        cycle_lengths=[5000],  # 5000 iterations for this fine-tuning stage
     ),
     model=dict(
         config=dict(
@@ -298,7 +298,7 @@ custom_multi_control_post_train = dict(
     ),
     trainer=dict(
         logging_iter=20,  # Log every 20 iterations
-        max_iter=10000,  # Total 10000 iterations (resume from 5000)
+        max_iter=5000,  # Fine-tuning for 5000 iterations with reset scheduler
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
