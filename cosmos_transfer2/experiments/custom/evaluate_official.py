@@ -44,6 +44,19 @@ from cosmos_transfer2._src.imaginaire.utils import distributed, log
 from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 from cosmos_transfer2._src.predict2.utils.model_loader import load_model_from_checkpoint
 
+# Import test dataset and collate function from your custom module
+from cosmos_transfer2.experiments.custom.custom_multi_control_experiment import (
+    BLUR_DATASET_DIR,
+    DEPTH_DATASET_DIR,
+    HDMAP_DATASET_DIR,
+    TRAINING_CAMERAS,
+    TRAIN_SCENE_IDS,
+)
+from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
+    MultiControlMultiviewDataset,
+    collate_fn,
+)
+
 # Metrics
 try:
     import lpips
@@ -278,14 +291,29 @@ def main():
     device = torch.device("cuda")
     metrics_calc = MetricsCalculator(device)
 
-    # Get dataloader - use validation/test data
-    # Try to get test dataloader, fall back to train
-    try:
-        dataloader = instantiate(inference.config.dataloader_val)
-        logger.info("Using validation dataloader")
-    except Exception:
-        dataloader = instantiate(inference.config.dataloader_train)
-        logger.info("Using training dataloader (validation not available)")
+    # Create test dataset (exclude training scenes = keep only test scenes)
+    test_dataset = MultiControlMultiviewDataset(
+        blur_dataset_dir=BLUR_DATASET_DIR,
+        depth_dataset_dir=DEPTH_DATASET_DIR,
+        hdmap_dataset_dir=HDMAP_DATASET_DIR,
+        camera_views=TRAINING_CAMERAS,
+        num_video_frames=29,
+        fps_downsample_factor=3,
+        height=720,
+        width=1280,
+        exclude_scene_ids=TRAIN_SCENE_IDS,  # Exclude training scenes = keep only test scenes
+    )
+    logger.info(f"Loaded test dataset with {len(test_dataset)} samples")
+
+    # Create dataloader
+    from torch.utils.data import DataLoader
+    dataloader = DataLoader(
+        test_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=4,
+        collate_fn=collate_fn,
+    )
 
     # Metrics storage
     all_psnr = []
@@ -335,25 +363,31 @@ def main():
             logger.warning(f"Shape mismatch: generated {generated_01.shape}, gt {gt_01.shape}")
             continue
 
-        # Compute metrics (frame-wise)
-        B, C, T, H, W = generated_01.shape
-        num_frames_per_sample = T
+        # Get number of views from batch
+        n_views = len(batch.get("view_indices_selection", [[0,1,2,3]])[0])
 
-        for t in range(T):
-            pred_frame = generated_01[:, :, t:t+1, :, :]
-            gt_frame = gt_01[:, :, t:t+1, :, :]
+        # Compute metrics (frame-wise, per-view)
+        # Data is (B, C, V*T, H, W) - need to separate views and frames
+        B, C, VT, H, W = generated_01.shape
+        T = VT // n_views
+        num_frames_per_sample = VT  # Total frames across all views
 
-            # Reshape for metrics (B, C, H, W)
-            pred_2d = pred_frame.squeeze(2)
-            gt_2d = gt_frame.squeeze(2)
+        # Reshape to (B, C, V, T, H, W) for per-frame metrics
+        generated_reshaped = rearrange(generated_01, "B C (V T) H W -> B V C T H W", V=n_views)
+        gt_reshaped = rearrange(gt_01, "B C (V T) H W -> B V C T H W", V=n_views)
 
-            psnr = metrics_calc.compute_psnr(pred_2d, gt_2d)
-            ssim = metrics_calc.compute_ssim(pred_2d, gt_2d)
-            lpips_val = metrics_calc.compute_lpips(pred_2d, gt_2d)
+        for v in range(n_views):
+            for t in range(T):
+                pred_frame = generated_reshaped[:, v, :, t, :, :]  # (B, C, H, W)
+                gt_frame = gt_reshaped[:, v, :, t, :, :]  # (B, C, H, W)
 
-            all_psnr.append(psnr)
-            all_ssim.append(ssim)
-            all_lpips.append(lpips_val)
+                psnr = metrics_calc.compute_psnr(pred_frame, gt_frame)
+                ssim = metrics_calc.compute_ssim(pred_frame, gt_frame)
+                lpips_val = metrics_calc.compute_lpips(pred_frame, gt_frame)
+
+                all_psnr.append(psnr)
+                all_ssim.append(ssim)
+                all_lpips.append(lpips_val)
 
         # Save comparison video
         if inference.rank0 and i in video_save_indices:
