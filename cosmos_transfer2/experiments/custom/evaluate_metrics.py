@@ -621,6 +621,12 @@ def evaluate(
         )
         logger.info("Initialized Megatron parallel state with context_parallel_size=1")
 
+    # Set cp_mesh to None for single-GPU text encoder inference
+    if hasattr(model, 'text_encoder') and model.text_encoder is not None:
+        if hasattr(model.text_encoder, 'model') and model.text_encoder.model is not None:
+            model.text_encoder.model.cp_mesh = None
+            logger.info("Set text_encoder.model.cp_mesh = None for single-GPU inference")
+
     # Initialize metric calculators
     fid_calc = FIDCalculator(device)
     lpips_calc = LPIPSCalculator(device)
