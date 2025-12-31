@@ -221,23 +221,22 @@ custom_multi_control_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Resume from 5000 iter checkpoint
-        load_path="/mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20251226_155343/checkpoints/iter_000005000",
-        load_training_state=False,  # Reset scheduler to get higher learning rate
-        strict_resume=True,  # Strict resume from our own checkpoint
+        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,  # Load from Transfer2.5 multiview
+        load_training_state=False,  # Don't load optimizer state
+        strict_resume=False,  # Allow missing keys (blur/depth heads will be random initialized)
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
     ),
     optimizer=dict(
-        lr=2e-5,  # Increased for larger batch size (effective batch_size=8)
+        lr=1e-4,  # Higher lr for batch_size=8 (linear scaling from 3e-5)
         weight_decay=1e-3,
         betas=[0.9, 0.999],
     ),
     scheduler=dict(
-        f_max=[1.0],  # Use lr directly as max
-        f_min=[0.2],  # Decay to 4e-6 at end (20% of base lr)
-        warm_up_steps=[100],  # Shorter warmup for fine-tuning
-        cycle_lengths=[5000],  # 5000 iterations for this fine-tuning stage
+        f_max=[1.0],  # Peak lr = 1e-4
+        f_min=[0.1],  # Final lr = 1e-5 (decay 10x)
+        warm_up_steps=[500],  # 10% warmup for large batch
+        cycle_lengths=[5000],  # Full training cycle
     ),
     model=dict(
         config=dict(
