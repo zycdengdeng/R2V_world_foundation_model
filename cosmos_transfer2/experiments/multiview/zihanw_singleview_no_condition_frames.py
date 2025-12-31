@@ -200,10 +200,9 @@ zihanw_singleview_no_condition_frames = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Load pretrained weights via checkpointer
-        # The checkpointer uses easy_io.load() which can handle .pt files from HuggingFace
-        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
-        load_training_state=False,  # Don't load optimizer state
+        # Resume from checkpoint
+        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_no_cond_20251231_010718/checkpoints/iter_000003400",
+        load_training_state=True,  # Resume optimizer state for continuation
         strict_resume=False,  # Allow missing keys for new control heads
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
