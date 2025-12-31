@@ -235,7 +235,7 @@ custom_multi_control_post_train = dict(
     ),
     scheduler=dict(
         f_max=[1.0],  # Use lr directly as max
-        f_min=[0.1],  # Decay to 1e-6 at end
+        f_min=[0.2],  # Decay to 4e-6 at end (20% of base lr)
         warm_up_steps=[100],  # Shorter warmup for fine-tuning
         cycle_lengths=[5000],  # 5000 iterations for this fine-tuning stage
     ),
@@ -254,7 +254,7 @@ custom_multi_control_post_train = dict(
             conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
-            fsdp_shard_size=8,
+            fsdp_shard_size=WORLD_SIZE,  # Must match NUM_GPUS
             resolution="720p",
             shift=5,
             use_dynamic_shift=False,
@@ -414,7 +414,7 @@ custom_multi_control_post_train_small = dict(
             conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
-            fsdp_shard_size=8,
+            fsdp_shard_size=WORLD_SIZE,  # Must match NUM_GPUS
             resolution="720p",
             shift=5,
             base_load_from=None,
