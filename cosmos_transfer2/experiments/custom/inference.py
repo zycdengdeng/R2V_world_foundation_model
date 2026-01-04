@@ -62,18 +62,30 @@ def parse_args():
 
 
 def init_distributed(context_parallel_size: int):
-    """Initialize distributed processing for multi-GPU inference."""
-    if "RANK" not in os.environ:
-        return None, True  # Single GPU mode
+    """Initialize distributed processing.
 
-    dist.init_process_group(backend="nccl")
+    NOTE: Even for single-GPU inference, we need to initialize megatron parallel state
+    because the model's encode() method uses context parallel groups.
+    """
+    from megatron.core import parallel_state
+
+    if "RANK" not in os.environ:
+        # Single GPU mode - still need to init distributed for megatron
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "29500"
+        os.environ["RANK"] = "0"
+        os.environ["WORLD_SIZE"] = "1"
+        dist.init_process_group(backend="gloo", rank=0, world_size=1)
+        logger.info("Initialized single-GPU distributed (gloo backend)")
+    else:
+        # Multi-GPU mode
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(dist.get_rank())
+
     rank = dist.get_rank()
     world_size = dist.get_world_size()
 
-    torch.cuda.set_device(rank)
-
-    # Initialize megatron parallel state
-    from megatron.core import parallel_state
+    # Initialize megatron parallel state (required for model's encode_cp)
     parallel_state.initialize_model_parallel(
         context_parallel_size=context_parallel_size,
     )
