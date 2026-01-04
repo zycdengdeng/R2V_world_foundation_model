@@ -80,6 +80,14 @@ CAMERAS_1VIEW: tuple[str, ...] = (
     "camera_front_wide_120fov",  # Front camera only
 )
 
+# 4 cameras for multi-view training (FW, FL, FR, RL)
+CAMERAS_4VIEW: tuple[str, ...] = (
+    "camera_front_wide_120fov",   # FW - Front wide
+    "camera_cross_left_120fov",   # FL - Front left (cross left)
+    "camera_cross_right_120fov",  # FR - Front right (cross right)
+    "camera_rear_left_70fov",     # RL - Rear left
+)
+
 # Train/Eval clip splits
 TRAIN_CLIPS = (
     "001", "002", "003", "004", "006", "007", "009", "010", "013", "015",
@@ -99,12 +107,12 @@ EVAL_CLIPS = (
 DATA_ROOT = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data"
 
 
-def register_singleview_no_cond_dataloader() -> None:
-    """Register single-view dataloader with front camera only."""
+def register_multiview_dataloader() -> None:
+    """Register 4-view dataloader for multi-view training."""
 
     cs = ConfigStore.instance()
 
-    # Single-view dataset (front camera only) - Training
+    # 4-view dataset - Training
     dataset = L(MultiControlMultiviewDataset)(
         base_video_dir=f"{DATA_ROOT}/BlurProjection",
         control_dirs={
@@ -116,8 +124,8 @@ def register_singleview_no_cond_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=29,  # 29 frames -> state_t=8
         single_caption_camera_name="camera_front_wide_120fov",
-        # Single view: front camera only
-        selected_cameras=CAMERAS_1VIEW,
+        # 4 views: FW, FL, FR, RL
+        selected_cameras=CAMERAS_4VIEW,
         # Only include training clips
         include_only_clips=TRAIN_CLIPS,
     )
@@ -125,12 +133,12 @@ def register_singleview_no_cond_dataloader() -> None:
     cs.store(
         group="data_train",
         package="dataloader_train",
-        name="zihanw_singleview_no_cond",
+        name="zihanw_multiview_no_cond",
         node=L(get_generic_dataloader)(
             dataset=dataset,
             sampler=L(get_sampler)(dataset=dataset) if dist.is_initialized() else None,
             collate_fn=collate_fn,
-            batch_size=4,
+            batch_size=1,  # Must be 1 for multiview training
             drop_last=True,
             num_workers=4,
             pin_memory=True,
@@ -149,19 +157,19 @@ def register_singleview_no_cond_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=29,
         single_caption_camera_name="camera_front_wide_120fov",
-        selected_cameras=CAMERAS_1VIEW,
+        selected_cameras=CAMERAS_4VIEW,
         include_only_clips=EVAL_CLIPS,
     )
 
     cs.store(
         group="data_val",
         package="dataloader_val",
-        name="zihanw_singleview_no_cond_val",
+        name="zihanw_multiview_no_cond_val",
         node=L(get_generic_dataloader)(
             dataset=val_dataset,
             sampler=L(get_sampler)(dataset=val_dataset) if dist.is_initialized() else None,
             collate_fn=collate_fn,
-            batch_size=4,
+            batch_size=1,  # Must be 1 for multiview
             drop_last=False,
             num_workers=4,
             pin_memory=True,
@@ -170,18 +178,17 @@ def register_singleview_no_cond_dataloader() -> None:
 
 
 # Register dataloaders when module is imported
-register_singleview_no_cond_dataloader()
+register_multiview_dataloader()
 
 
-# Experiment configuration - NO conditional frames version
-# Following the same pattern as classmate's custom_multi_control_experiment.py
+# Experiment configuration - 4-view multi-control training
 # Key: Don't inherit from buttercup experiment (which includes load_base_model_callbacks)
 zihanw_singleview_no_condition_frames = dict(
     # Direct defaults - NOT inheriting from buttercup experiment
     # This avoids load_base_model_callbacks which uses DCP format (incompatible with .pt files)
     defaults=[
-        {"override /data_train": "zihanw_singleview_no_cond"},
-        {"override /data_val": "zihanw_singleview_no_cond_val"},
+        {"override /data_train": "zihanw_multiview_no_cond"},
+        {"override /data_val": "zihanw_multiview_no_cond_val"},
         {"override /model": "fsdp_rectified_flow_multiview_control"},
         {"override /net": "cosmos_v1_2B_multiview_control"},
         {"override /conditioner": "video_prediction_multiview_control_conditioner_multicontrol"},
@@ -195,14 +202,14 @@ zihanw_singleview_no_condition_frames = dict(
     ],
     job=dict(
         project="cosmos_transfer_v2p5",
-        group="zihanw_singleview",
-        name=f"zihanw_singleview_no_cond_{RUN_TIMESTAMP}"  # Unique name to prevent auto-resume
+        group="zihanw_4view",
+        name=f"zihanw_4view_no_cond_{RUN_TIMESTAMP}"  # Unique name to prevent auto-resume
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Resume from checkpoint
-        load_path="/mnt/zihanw/cosmos-transfer-output/cosmos_transfer_v2p5/zihanw_singleview/zihanw_singleview_no_cond_20251231_010718/checkpoints/iter_000003400",
-        load_training_state=True,  # Resume optimizer state for continuation
+        # Load pretrained weights (fresh start for 4-view training)
+        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
+        load_training_state=False,  # Fresh start, don't load optimizer state
         strict_resume=False,  # Allow missing keys for new control heads
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
@@ -231,8 +238,8 @@ zihanw_singleview_no_condition_frames = dict(
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=0,
             condition_locations=["first_random_n"],
-            # Single view training (1 camera)
-            train_sample_views_range=[1, 1],
+            # 4-view training (FW, FL, FR, RL)
+            train_sample_views_range=[4, 4],
             conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
