@@ -48,6 +48,8 @@ def parse_args():
                         help="Test sample index to use")
     parser.add_argument("--context_parallel_size", type=int, default=1,
                         help="Context parallel size (number of GPUs)")
+    parser.add_argument("--num_views", type=int, default=None,
+                        help="Number of camera views (default: same as context_parallel_size)")
     parser.add_argument("--guidance", type=float, default=7.0,
                         help="CFG guidance scale")
     parser.add_argument("--num_steps", type=int, default=35,
@@ -158,8 +160,13 @@ def load_model_and_config(experiment_name: str, ckpt_path: str, context_parallel
     return model, config
 
 
-def create_test_dataset(sample_idx: int = 0):
-    """Create test dataset and get one sample."""
+def create_test_dataset(sample_idx: int = 0, num_views: int = 1):
+    """Create test dataset and get one sample.
+
+    Args:
+        sample_idx: Index of sample to load
+        num_views: Number of camera views to use (must be <= context_parallel_size)
+    """
     from cosmos_transfer2.experiments.custom.custom_multi_control_experiment import (
         BLUR_DATASET_DIR,
         DEPTH_DATASET_DIR,
@@ -172,7 +179,10 @@ def create_test_dataset(sample_idx: int = 0):
         collate_fn,
     )
 
-    logger.info("Creating test dataset...")
+    # Use only the first num_views cameras
+    camera_keys = TRAINING_CAMERAS[:num_views]
+    logger.info(f"Creating test dataset with {num_views} view(s): {camera_keys}")
+
     test_dataset = MultiControlMultiviewDataset(
         blur_dataset_dir=BLUR_DATASET_DIR,
         depth_dataset_dir=DEPTH_DATASET_DIR,
@@ -180,7 +190,7 @@ def create_test_dataset(sample_idx: int = 0):
         resolution_hw=(720, 1280),
         num_video_frames=29,
         fps_downsample_factor=1,
-        camera_keys=TRAINING_CAMERAS,
+        camera_keys=camera_keys,
         single_caption_camera_name="camera_front_wide_120fov",
         add_view_prefix_to_caption=True,
         exclude_scene_ids=TRAIN_SCENE_IDS,  # Exclude training scenes = keep only test scenes
@@ -366,6 +376,9 @@ def main():
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
+    # Determine number of views (default: same as context_parallel_size)
+    num_views = args.num_views if args.num_views is not None else args.context_parallel_size
+
     logger.info("=" * 60)
     logger.info("Multi-Control Model Inference")
     logger.info("=" * 60)
@@ -373,7 +386,15 @@ def main():
     logger.info(f"Experiment: {args.experiment}")
     logger.info(f"Sample index: {args.sample_idx}")
     logger.info(f"Context parallel size: {args.context_parallel_size}")
+    logger.info(f"Number of views: {num_views}")
     logger.info("=" * 60)
+
+    # Validate: num_views must be <= context_parallel_size
+    if num_views > args.context_parallel_size:
+        raise ValueError(
+            f"num_views ({num_views}) must be <= context_parallel_size ({args.context_parallel_size}). "
+            f"Use --context_parallel_size {num_views} or --num_views {args.context_parallel_size}"
+        )
 
     # Initialize distributed if needed
     process_group, is_rank0 = init_distributed(args.context_parallel_size)
@@ -389,7 +410,7 @@ def main():
         )
 
         # Create test dataset and get sample
-        batch, test_dataset = create_test_dataset(args.sample_idx)
+        batch, test_dataset = create_test_dataset(args.sample_idx, num_views=num_views)
 
         # Prepare batch for inference
         batch = prepare_batch(batch, model)
