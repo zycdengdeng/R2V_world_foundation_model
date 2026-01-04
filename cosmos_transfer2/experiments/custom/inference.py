@@ -42,7 +42,7 @@ def parse_args():
                         help="Path to checkpoint directory (e.g., .../iter_000005000)")
     parser.add_argument("--experiment", type=str, default="custom_multi_control_post_train",
                         help="Experiment name")
-    parser.add_argument("--output_dir", type=str, default="./inference_output",
+    parser.add_argument("--output_dir", type=str, default="/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_output",
                         help="Output directory for generated videos")
     parser.add_argument("--sample_idx", type=int, default=0,
                         help="Test sample index to use")
