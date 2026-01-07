@@ -80,6 +80,12 @@ CAMERAS_1VIEW: tuple[str, ...] = (
     "camera_front_wide_120fov",  # Front camera only
 )
 
+# 2 cameras for 2-GPU training (FW + FR)
+CAMERAS_2VIEW: tuple[str, ...] = (
+    "camera_front_wide_120fov",   # FW - Front wide
+    "camera_cross_right_120fov",  # FR - Front right (cross right)
+)
+
 # 4 cameras for multi-view training (FW, FL, FR, RL)
 CAMERAS_4VIEW: tuple[str, ...] = (
     "camera_front_wide_120fov",   # FW - Front wide
@@ -124,8 +130,8 @@ def register_multiview_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=29,  # 29 frames -> state_t=8
         single_caption_camera_name="camera_front_wide_120fov",
-        # 4 views: FW, FL, FR, RL
-        selected_cameras=CAMERAS_4VIEW,
+        # 2 views: FW + FR (for 2 GPU training)
+        selected_cameras=CAMERAS_2VIEW,
         # Only include training clips
         include_only_clips=TRAIN_CLIPS,
     )
@@ -157,7 +163,7 @@ def register_multiview_dataloader() -> None:
         resolution_hw=(720, 1280),
         num_video_frames=29,
         single_caption_camera_name="camera_front_wide_120fov",
-        selected_cameras=CAMERAS_4VIEW,
+        selected_cameras=CAMERAS_2VIEW,
         include_only_clips=EVAL_CLIPS,
     )
 
@@ -202,12 +208,12 @@ zihanw_singleview_no_condition_frames = dict(
     ],
     job=dict(
         project="cosmos_transfer_v2p5",
-        group="zihanw_4view",
-        name=f"zihanw_4view_no_cond_{RUN_TIMESTAMP}"  # Unique name to prevent auto-resume
+        group="zihanw_2view",
+        name=f"zihanw_2view_FW_FR_{RUN_TIMESTAMP}"  # Unique name to prevent auto-resume
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Load pretrained weights (fresh start for 4-view training)
+        # Load pretrained weights (fresh start for 2-view training)
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
         load_training_state=False,  # Fresh start, don't load optimizer state
         strict_resume=False,  # Allow missing keys for new control heads
@@ -238,8 +244,8 @@ zihanw_singleview_no_condition_frames = dict(
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=0,
             condition_locations=["first_random_n"],
-            # 4-view training (FW, FL, FR, RL)
-            train_sample_views_range=[4, 4],
+            # 2-view training (FW + FR)
+            train_sample_views_range=[2, 2],
             conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
