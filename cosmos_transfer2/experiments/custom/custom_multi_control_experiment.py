@@ -45,9 +45,12 @@ from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
     MultiControlMultiviewDataset,
     collate_fn,
 )
-# Import evaluation callback
+# Import evaluation callbacks
 from cosmos_transfer2.experiments.custom.evaluation_callback import (
     EveryNEvalMultiviewVideo,
+)
+from cosmos_transfer2.experiments.custom.test_loss_callback import (
+    EveryNTestLoss,
 )
 
 # Get the Transfer2.5 multiview checkpoint (optimized for control tasks)
@@ -341,7 +344,7 @@ custom_multi_control_post_train = dict(
                 num_cond_frames=[0],  # Only no condition frames
                 save_s3=False,
             ),
-            # Evaluation on fixed test samples
+            # Evaluation on fixed test samples (visual comparison)
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0, 1, 2, 3],  # 4 samples from test set
@@ -354,6 +357,13 @@ custom_multi_control_post_train = dict(
                 num_cond_frames=[0],  # No conditioning frames
                 save_local=True,
                 name="eval_test",
+            ),
+            # Test set loss for checkpoint selection
+            every_n_test_loss=L(EveryNTestLoss)(
+                eval_dataset=create_eval_dataset(),
+                every_n=200,  # Compute test loss every 200 iterations
+                num_timestep_samples=4,  # Average over 4 timesteps per sample
+                name="test_loss",
             ),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
@@ -494,11 +504,11 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],  # Only no condition frames
                 save_s3=False,
             ),
-            # Evaluation on fixed test samples
+            # Evaluation on fixed test samples (visual comparison)
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0, 1, 2, 3],  # 4 samples for evaluation
-                every_n=1,  # Run at iteration 1 for testing
+                every_n=50,  # Run every 50 iterations for small config
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
@@ -507,6 +517,13 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],  # No condition frames
                 save_local=True,
                 name="eval_test",
+            ),
+            # Test set loss for checkpoint selection
+            every_n_test_loss=L(EveryNTestLoss)(
+                eval_dataset=create_eval_dataset(),
+                every_n=50,  # Compute test loss every 50 iterations for small config
+                num_timestep_samples=4,  # Average over 4 timesteps per sample
+                name="test_loss",
             ),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
