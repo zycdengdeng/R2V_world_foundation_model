@@ -123,12 +123,16 @@ TRAIN_SCENE_IDS = ["001", "002", "003", "004", "006", "007", "009", "010", "013"
 # Number of GPUs (for context parallel)
 WORLD_SIZE = int(os.environ.get("WORLD_SIZE", 8))
 
-# Fixed training cameras (4 views to match 4 GPUs)
+# Fixed training cameras (7 views for 8 GPUs)
+# Using all 7 available camera views
 TRAINING_CAMERAS = (
-    "camera_front_wide_120fov",
-    "camera_cross_left_120fov",
-    "camera_cross_right_120fov",
-    "camera_rear_right_70fov",
+    "camera_front_wide_120fov",      # 前视广角 120°
+    "camera_cross_right_120fov",     # 右侧 120°
+    "camera_rear_right_70fov",       # 右后 70°
+    "camera_rear_tele_30fov",        # 后视长焦 30°
+    "camera_rear_left_70fov",        # 左后 70°
+    "camera_cross_left_120fov",      # 左侧 120°
+    "camera_front_tele_30fov",       # 前视长焦 30°
 )
 
 
@@ -248,8 +252,8 @@ custom_multi_control_post_train = dict(
             max_num_conditional_frames_per_view=0,  # Always 0 condition frames
             condition_locations=["first_random_n"],
             # NOTE: n_views must be <= NUM_GPUS due to context parallelism
-            # Set to WORLD_SIZE to match the number of GPUs available
-            train_sample_views_range=[WORLD_SIZE, WORLD_SIZE],
+            # Use 7 views (all available cameras) with 8 GPUs
+            train_sample_views_range=[7, 7],
             conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
@@ -409,7 +413,7 @@ custom_multi_control_post_train_small = dict(
             min_num_conditional_frames_per_view=0,
             max_num_conditional_frames_per_view=0,  # Always 0 condition frames
             condition_locations=["first_random_n"],
-            train_sample_views_range=[WORLD_SIZE, WORLD_SIZE],
+            train_sample_views_range=[7, 7],  # 7 views with 8 GPUs
             conditional_frames_probs={0: 1.0},  # 100% no condition frames
             state_t=8,
             online_text_embeddings_as_dict=False,
