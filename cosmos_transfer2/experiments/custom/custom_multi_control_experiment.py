@@ -470,16 +470,16 @@ custom_multi_control_post_train_small = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=10,
-        max_iter=500,
+        logging_iter=1,  # TESTING: log every iteration
+        max_iter=2,  # TESTING: only run 2 iterations
         callbacks=dict(
             heart_beat=dict(save_s3=False),
-            iter_speed=dict(hit_thres=50, every_n=50, save_s3=False),
+            iter_speed=dict(hit_thres=1, every_n=1, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             # Sample generation for monitoring (no condition frames - pure control)
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=50,
+                every_n=1,  # TESTING: run at iteration 1
                 is_x0=False,
                 is_ema=False,
                 num_sampling_step=35,
@@ -492,7 +492,7 @@ custom_multi_control_post_train_small = dict(
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=50,
+                every_n=1,  # TESTING: run at iteration 1
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
@@ -507,8 +507,8 @@ custom_multi_control_post_train_small = dict(
             # Evaluation on fixed test samples (visual comparison)
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0, 1, 2, 3],  # 4 samples for evaluation
-                every_n=50,  # Run every 50 iterations for small config
+                eval_sample_indices=[0, 1],  # TESTING: only 2 samples
+                every_n=1,  # TESTING: run at iteration 1
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
@@ -521,8 +521,8 @@ custom_multi_control_post_train_small = dict(
             # Test set loss for checkpoint selection
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=50,  # Compute test loss every 50 iterations for small config
-                num_timestep_samples=4,  # Average over 4 timesteps per sample
+                every_n=1,  # TESTING: run at iteration 1
+                num_timestep_samples=2,  # TESTING: only 2 timesteps for speed
                 name="test_loss",
             ),
             wandb=dict(save_s3=False),
