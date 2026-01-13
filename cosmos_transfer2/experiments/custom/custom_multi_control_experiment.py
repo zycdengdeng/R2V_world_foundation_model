@@ -478,47 +478,48 @@ custom_multi_control_post_train_small = dict(
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             # Sample generation for monitoring (no condition frames - pure control)
-            every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=1,  # TESTING: run at iteration 1
-                is_x0=False,
-                is_ema=False,
-                num_sampling_step=35,
-                guidance=[7],
-                fps=10,
-                # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
-                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Compare: no control vs with control
-                num_cond_frames=[0],  # Only no condition frames
-                save_s3=False,
-            ),
-            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=1,  # TESTING: run at iteration 1
-                is_x0=False,
-                is_ema=True,
-                num_sampling_step=35,
-                guidance=[7],
-                fps=10,
-                # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
-                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Compare: no control vs with control
-                num_cond_frames=[0],  # Only no condition frames
-                save_s3=False,
-            ),
-            # Evaluation on fixed test samples (visual comparison)
-            every_n_eval=L(EveryNEvalMultiviewVideo)(
-                eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0, 1],  # TESTING: only 2 samples
-                every_n=1,  # TESTING: run at iteration 1
-                num_sampling_step=35,
-                guidance=[7],
-                fps=10,
-                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[1.0],
-                num_cond_frames=[0],  # No condition frames
-                save_local=True,
-                name="eval_test",
-            ),
-            # Test set loss for checkpoint selection
+            # DISABLED FOR TESTING - sample generation callbacks cause NCCL timeout
+            # every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
+            #     every_n=1,  # TESTING: run at iteration 1
+            #     is_x0=False,
+            #     is_ema=False,
+            #     num_sampling_step=35,
+            #     guidance=[7],
+            #     fps=10,
+            #     # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
+            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+            #     control_weights=[0.0, 1.0],  # Compare: no control vs with control
+            #     num_cond_frames=[0],  # Only no condition frames
+            #     save_s3=False,
+            # ),
+            # every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+            #     every_n=1,  # TESTING: run at iteration 1
+            #     is_x0=False,
+            #     is_ema=True,
+            #     num_sampling_step=35,
+            #     guidance=[7],
+            #     fps=10,
+            #     # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
+            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+            #     control_weights=[0.0, 1.0],  # Compare: no control vs with control
+            #     num_cond_frames=[0],  # Only no condition frames
+            #     save_s3=False,
+            # ),
+            # # Evaluation on fixed test samples (visual comparison)
+            # every_n_eval=L(EveryNEvalMultiviewVideo)(
+            #     eval_dataset=create_eval_dataset(),
+            #     eval_sample_indices=[0, 1],  # TESTING: only 2 samples
+            #     every_n=1,  # TESTING: run at iteration 1
+            #     num_sampling_step=35,
+            #     guidance=[7],
+            #     fps=10,
+            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+            #     control_weights=[1.0],
+            #     num_cond_frames=[0],  # No condition frames
+            #     save_local=True,
+            #     name="eval_test",
+            # ),
+            # Test set loss for checkpoint selection (TESTING THIS ONLY)
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
                 every_n=1,  # TESTING: run at iteration 1
