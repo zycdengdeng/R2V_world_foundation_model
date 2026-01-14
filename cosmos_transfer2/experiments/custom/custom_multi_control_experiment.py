@@ -384,8 +384,8 @@ custom_multi_control_post_train = dict(
 
 
 # Smaller configuration for quick testing (500 iterations)
-# Create shared eval dataset once (avoid loading twice)
-_small_eval_dataset = create_eval_dataset()
+# Shared eval dataset - DISABLED for now due to OOM issues
+# _small_eval_dataset = create_eval_dataset()
 
 custom_multi_control_post_train_small = dict(
     defaults=[
