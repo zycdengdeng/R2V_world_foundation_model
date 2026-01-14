@@ -102,99 +102,34 @@ class EveryNEvalMultiviewVideo(Callback):
     def _load_eval_samples(self, model) -> List[Dict[str, Any]]:
         """Load fixed evaluation samples from test dataset (one sample at a time).
 
-        IMPORTANT: Only rank 0 loads data, then broadcasts to all ranks to ensure
-        consistency for context parallelism.
+        Each rank loads the same data independently (dataset is deterministic).
         """
         from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
         device = model.tensor_kwargs.get('device', 'cuda')
         uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
 
-        # Ensure rank is correctly set
-        rank = dist.get_rank() if dist.is_initialized() else 0
-
         samples = []
 
-        # Only rank 0 loads data from dataset
-        if rank == 0:
-            for idx in self.eval_sample_indices:
-                if idx < len(self.eval_dataset):
-                    sample = self.eval_dataset[idx]
-                    # Collate single sample into batch format
-                    batch = collate_fn([sample])
-                    samples.append(batch)
-                else:
-                    log.warning(f"Eval sample index {idx} out of range, dataset has {len(self.eval_dataset)} samples")
+        # Each rank loads the same data independently
+        for idx in self.eval_sample_indices:
+            if idx < len(self.eval_dataset):
+                sample = self.eval_dataset[idx]
+                # Collate single sample into batch format
+                batch = collate_fn([sample])
+                # Move to device
+                for key, value in batch.items():
+                    if isinstance(value, torch.Tensor):
+                        if key in uint8_keys:
+                            batch[key] = value.to(device=device)
+                        else:
+                            batch[key] = value.to(**model.tensor_kwargs)
+                samples.append(batch)
+            else:
+                log.warning(f"Eval sample index {idx} out of range, dataset has {len(self.eval_dataset)} samples")
 
-        # Broadcast number of samples to all ranks
-        if dist.is_initialized():
-            num_samples = torch.tensor([len(samples)], device='cuda')
-            dist.broadcast(num_samples, src=0)
-            num_samples = num_samples.item()
-        else:
-            num_samples = len(samples)
-
-        if num_samples == 0:
+        if not samples:
             log.error("No valid evaluation samples found!")
             return None
-
-        # Broadcast each sample's tensors from rank 0 to all ranks
-        if dist.is_initialized() and dist.get_world_size() > 1:
-            if rank != 0:
-                # Initialize empty samples list on non-rank-0
-                samples = [None] * num_samples
-
-            for sample_idx in range(num_samples):
-                if rank == 0:
-                    batch = samples[sample_idx]
-                    # Broadcast keys first
-                    keys = list(batch.keys())
-                    keys_obj = [keys]
-                else:
-                    keys_obj = [None]
-
-                dist.broadcast_object_list(keys_obj, src=0)
-                keys = keys_obj[0]
-
-                if rank != 0:
-                    samples[sample_idx] = {}
-
-                # Broadcast each tensor
-                for key in keys:
-                    if rank == 0:
-                        value = batch[key]
-                        is_tensor = isinstance(value, torch.Tensor)
-                        meta = [is_tensor, value.shape if is_tensor else None, value.dtype if is_tensor else None]
-                    else:
-                        meta = [None, None, None]
-
-                    dist.broadcast_object_list(meta, src=0)
-                    is_tensor, shape, dtype = meta
-
-                    if is_tensor:
-                        if rank == 0:
-                            tensor = value.cuda().contiguous()
-                        else:
-                            tensor = torch.empty(shape, dtype=dtype, device='cuda')
-
-                        dist.broadcast(tensor, src=0)
-                        samples[sample_idx][key] = tensor
-                    else:
-                        # For non-tensor values, use broadcast_object_list
-                        if rank == 0:
-                            value_obj = [batch[key]]
-                        else:
-                            value_obj = [None]
-                        dist.broadcast_object_list(value_obj, src=0)
-                        samples[sample_idx][key] = value_obj[0]
-
-        # Move all samples to correct device with correct dtype
-        for batch in samples:
-            for key, value in batch.items():
-                if isinstance(value, torch.Tensor):
-                    if key in uint8_keys:
-                        batch[key] = value.to(device=device)
-                    else:
-                        batch[key] = value.to(**model.tensor_kwargs)
 
         return samples
 
@@ -369,12 +304,8 @@ class EveryNEvalMultiviewVideo(Callback):
             # Add ground truth
             sample_results.append(raw_data.float().cpu())
 
-            # Add control inputs visualization
-            if self.ctrl_hint_keys:
-                for key in self.ctrl_hint_keys:
-                    if key in data_batch and data_batch[key] is not None:
-                        hint = data_batch[key]
-                        sample_results.append(hint.float().cpu())
+            # Control inputs visualization disabled to simplify output
+            # Only show: generated video + ground truth
 
             # Rearrange for visualization (views stacked vertically)
             if n_views > 1:
@@ -417,15 +348,12 @@ class EveryNEvalMultiviewVideo(Callback):
         """Save visualization outputs.
 
         Layout (vertical views, horizontal samples):
-        - Rows: 4 views stacked vertically per sample
+        - Rows: 7 views stacked vertically per sample
         - Columns: different samples laid out horizontally
 
         Content order (top to bottom per column):
-        1. Generated with control (weight=1, no cond frame)
+        1. Generated with control
         2. Ground Truth
-        3. HDMap control
-        4. Blur control
-        5. Depth control
         """
         to_show = (1.0 + torch.stack(to_show, dim=0).clamp(-1, 1)) / 2.0  # [n, b, c, t, h, w]
         # h already contains V*H (views stacked vertically)

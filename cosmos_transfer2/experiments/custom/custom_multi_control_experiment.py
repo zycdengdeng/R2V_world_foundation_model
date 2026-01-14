@@ -344,21 +344,20 @@ custom_multi_control_post_train = dict(
                 num_cond_frames=[0],  # Only no condition frames
                 save_s3=False,
             ),
-            # DISABLED: every_n_eval has NCCL issues with context parallelism
-            # Use every_n_test_loss for checkpoint selection instead
-            # every_n_eval=L(EveryNEvalMultiviewVideo)(
-            #     eval_dataset=create_eval_dataset(),
-            #     eval_sample_indices=[0, 1, 2, 3],
-            #     every_n=200,
-            #     num_sampling_step=35,
-            #     guidance=[7],
-            #     fps=10,
-            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-            #     control_weights=[1.0],
-            #     num_cond_frames=[0],
-            #     save_local=True,
-            #     name="eval_test",
-            # ),
+            # Evaluation on fixed test samples - simplified (no control visualization)
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
+                eval_dataset=create_eval_dataset(),
+                eval_sample_indices=[0, 1, 2, 3],  # 4 samples from test set
+                every_n=200,  # Evaluate every 200 iterations
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=[],  # No control visualization
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_local=True,
+                name="eval_test",
+            ),
             # Test set loss for checkpoint selection
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
@@ -503,21 +502,20 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # DISABLED: every_n_eval has NCCL issues with context parallelism
-            # Use every_n_test_loss for checkpoint selection instead
-            # every_n_eval=L(EveryNEvalMultiviewVideo)(
-            #     eval_dataset=create_eval_dataset(),
-            #     eval_sample_indices=[0, 1, 2, 3],
-            #     every_n=10,
-            #     num_sampling_step=35,
-            #     guidance=[7],
-            #     fps=10,
-            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-            #     control_weights=[1.0],
-            #     num_cond_frames=[0],
-            #     save_local=True,
-            #     name="eval_test",
-            # ),
+            # Evaluation on fixed test samples - simplified (no control visualization)
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
+                eval_dataset=create_eval_dataset(),
+                eval_sample_indices=[0, 1, 2, 3],  # 4 samples from test set
+                every_n=10,  # Run at iteration 10, 20
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=[],  # No control visualization
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_local=True,
+                name="eval_test",
+            ),
             # Test set loss - SAME AS PRODUCTION
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
