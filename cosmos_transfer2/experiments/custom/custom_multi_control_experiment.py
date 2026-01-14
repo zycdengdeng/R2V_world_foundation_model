@@ -317,52 +317,41 @@ custom_multi_control_post_train = dict(
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
-            # Sample generation for monitoring (no condition frames - pure control)
-            every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=200,  # Visualize every 200 iterations
-                is_x0=False,
-                is_ema=False,
-                num_sampling_step=35,
-                guidance=[7],
-                fps=10,
-                # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
-                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Compare: no control vs with control
-                num_cond_frames=[0],  # Only no condition frames
-                save_s3=False,
-            ),
+            # DISABLED: reg not needed, EMA is better for inference quality
+            # every_n_sample_reg - disabled to save memory
+            # EMA sampling - use interval 500 (10 times total)
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=200,  # Visualize every 200 iterations
+                every_n=500,  # Run at 500, 1000, 1500, ...
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                # Order must match hint_keys: hdmap first (pre-trained), then blur, depth
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Compare: no control vs with control
-                num_cond_frames=[0],  # Only no condition frames
+                control_weights=[1.0],  # Only with control (simplified to save memory)
+                num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Evaluation on fixed test samples - simplified (no control visualization)
+            # Evaluation on fixed test samples - use interval 700 (7 times total)
+            # Only 1 overlap with ema at iteration 3500
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0, 1, 2, 3],  # 4 samples from test set
-                every_n=200,  # Evaluate every 200 iterations
+                eval_sample_indices=[0, 1],  # Reduced to 2 samples to save memory
+                every_n=700,  # Run at 700, 1400, 2100, 2800, 3500, 4200, 4900
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
-                ctrl_hint_keys=[],  # No control visualization
+                ctrl_hint_keys=[],
                 control_weights=[1.0],
                 num_cond_frames=[0],
                 save_local=True,
                 name="eval_test",
             ),
-            # Test set loss for checkpoint selection
+            # Test set loss - frequent for checkpoint selection (lightweight, no inference)
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=200,  # Compute test loss every 200 iterations
-                num_timestep_samples=4,  # Average over 4 timesteps per sample
+                every_n=200,  # Run at 200, 400, 600, ... (25 times)
+                num_timestep_samples=4,
                 name="test_loss",
             ),
             wandb=dict(save_s3=False),
