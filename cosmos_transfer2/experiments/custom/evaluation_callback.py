@@ -99,31 +99,101 @@ class EveryNEvalMultiviewVideo(Callback):
         self.data_parallel_id = 0
 
     def _load_eval_samples(self, model) -> List[Dict[str, Any]]:
-        """Load fixed evaluation samples from test dataset (one sample at a time)."""
+        """Load fixed evaluation samples from test dataset (one sample at a time).
+
+        IMPORTANT: Only rank 0 loads data, then broadcasts to all ranks to ensure
+        consistency for context parallelism.
+        """
         from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
         device = model.tensor_kwargs.get('device', 'cuda')
         uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
 
-        samples = []
-        for idx in self.eval_sample_indices:
-            if idx < len(self.eval_dataset):
-                sample = self.eval_dataset[idx]
-                # Collate single sample into batch format
-                batch = collate_fn([sample])
-                # Move to device
-                for key, value in batch.items():
-                    if isinstance(value, torch.Tensor):
-                        if key in uint8_keys:
-                            batch[key] = value.to(device=device)
-                        else:
-                            batch[key] = value.to(**model.tensor_kwargs)
-                samples.append(batch)
-            else:
-                log.warning(f"Eval sample index {idx} out of range, dataset has {len(self.eval_dataset)} samples")
+        # Ensure rank is correctly set
+        rank = dist.get_rank() if dist.is_initialized() else 0
 
-        if not samples:
+        samples = []
+
+        # Only rank 0 loads data from dataset
+        if rank == 0:
+            for idx in self.eval_sample_indices:
+                if idx < len(self.eval_dataset):
+                    sample = self.eval_dataset[idx]
+                    # Collate single sample into batch format
+                    batch = collate_fn([sample])
+                    samples.append(batch)
+                else:
+                    log.warning(f"Eval sample index {idx} out of range, dataset has {len(self.eval_dataset)} samples")
+
+        # Broadcast number of samples to all ranks
+        if dist.is_initialized():
+            num_samples = torch.tensor([len(samples)], device='cuda')
+            dist.broadcast(num_samples, src=0)
+            num_samples = num_samples.item()
+        else:
+            num_samples = len(samples)
+
+        if num_samples == 0:
             log.error("No valid evaluation samples found!")
             return None
+
+        # Broadcast each sample's tensors from rank 0 to all ranks
+        if dist.is_initialized() and dist.get_world_size() > 1:
+            if rank != 0:
+                # Initialize empty samples list on non-rank-0
+                samples = [None] * num_samples
+
+            for sample_idx in range(num_samples):
+                if rank == 0:
+                    batch = samples[sample_idx]
+                    # Broadcast keys first
+                    keys = list(batch.keys())
+                    keys_obj = [keys]
+                else:
+                    keys_obj = [None]
+
+                dist.broadcast_object_list(keys_obj, src=0)
+                keys = keys_obj[0]
+
+                if rank != 0:
+                    samples[sample_idx] = {}
+
+                # Broadcast each tensor
+                for key in keys:
+                    if rank == 0:
+                        value = batch[key]
+                        is_tensor = isinstance(value, torch.Tensor)
+                        meta = [is_tensor, value.shape if is_tensor else None, value.dtype if is_tensor else None]
+                    else:
+                        meta = [None, None, None]
+
+                    dist.broadcast_object_list(meta, src=0)
+                    is_tensor, shape, dtype = meta
+
+                    if is_tensor:
+                        if rank == 0:
+                            tensor = value.cuda().contiguous()
+                        else:
+                            tensor = torch.empty(shape, dtype=dtype, device='cuda')
+
+                        dist.broadcast(tensor, src=0)
+                        samples[sample_idx][key] = tensor
+                    else:
+                        # For non-tensor values, use broadcast_object_list
+                        if rank == 0:
+                            value_obj = [batch[key]]
+                        else:
+                            value_obj = [None]
+                        dist.broadcast_object_list(value_obj, src=0)
+                        samples[sample_idx][key] = value_obj[0]
+
+        # Move all samples to correct device with correct dtype
+        for batch in samples:
+            for key, value in batch.items():
+                if isinstance(value, torch.Tensor):
+                    if key in uint8_keys:
+                        batch[key] = value.to(device=device)
+                    else:
+                        batch[key] = value.to(**model.tensor_kwargs)
 
         return samples
 
@@ -219,8 +289,16 @@ class EveryNEvalMultiviewVideo(Callback):
             if hasattr(model, 'inplace_compute_text_embeddings_online'):
                 model.inplace_compute_text_embeddings_online(data_batch)
 
+            # Synchronize after text embedding computation
+            if dist.is_initialized():
+                dist.barrier()
+
             # Get raw data and condition
             raw_data, x0, condition = model.get_data_and_condition(data_batch)
+
+            # Synchronize after getting data and condition
+            if dist.is_initialized():
+                dist.barrier()
 
             def time_to_height_dimension(mv_video):
                 """Rearrange multiview video with views stacked vertically."""
@@ -265,8 +343,18 @@ class EveryNEvalMultiviewVideo(Callback):
                         num_steps=self.num_sampling_step,
                         is_negative_prompt=False,
                     )
+
+                    # Synchronize after generation
+                    if dist.is_initialized():
+                        dist.barrier()
+
                     if hasattr(model, "decode"):
                         sample = model.decode(sample)
+
+                    # Synchronize after decode
+                    if dist.is_initialized():
+                        dist.barrier()
+
                     sample_results.append(sample.float().cpu())
 
             # Add ground truth
