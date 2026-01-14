@@ -95,7 +95,6 @@ class EveryNEvalMultiviewVideo(Callback):
         self.local_dir = local_dir
         self.name = name
 
-        self.eval_batch = None  # Will be loaded on first call
         self.rank = 0
         self.data_parallel_id = 0
 
@@ -188,27 +187,26 @@ class EveryNEvalMultiviewVideo(Callback):
         without explicit dist.barrier() calls - the model's generate_samples_from_batch
         handles synchronization internally.
         """
-        # Load eval samples if not already loaded
-        if self.eval_batch is None:
-            self.eval_batch = self._load_eval_samples(model)
-            if self.eval_batch is None:
-                return
-
-        # Aggressive GPU memory cleanup before sampling
-        # This is important when running after other sampling callbacks
+        # Aggressive GPU memory cleanup before loading/sampling
+        # This is critical when running after other sampling callbacks
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             gc.collect()
             torch.cuda.empty_cache()
 
+        # Load eval samples fresh each time (don't cache to save GPU memory)
+        # Each rank loads the same data independently (dataset is deterministic)
+        eval_samples = self._load_eval_samples(model)
+        if eval_samples is None:
+            log.warning("[EveryNEvalMultiviewVideo] No eval samples, all ranks skipping")
+            return
+
         # Process each sample individually and collect results
         all_results = []  # List of results per sample
+        n_views = None
 
-        for sample_idx, eval_sample in enumerate(self.eval_batch):
-            # Make a copy of the sample to avoid modifying cached version
-            data_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v
-                          for k, v in eval_sample.items()}
-
+        for sample_idx, data_batch in enumerate(eval_samples):
+            # data_batch is already a fresh copy from _load_eval_samples
             n_views = len(data_batch["view_indices_selection"][0])
 
             # Compute text embeddings online (same as training)
@@ -263,7 +261,7 @@ class EveryNEvalMultiviewVideo(Callback):
 
                     sample_results.append(sample.float().cpu())
 
-            # Add ground truth
+            # Add ground truth (move to CPU immediately)
             sample_results.append(raw_data.float().cpu())
 
             # Control inputs visualization disabled to simplify output
@@ -275,12 +273,20 @@ class EveryNEvalMultiviewVideo(Callback):
 
             all_results.append(sample_results)
 
-            # GPU cache cleanup between samples
+            # Aggressive GPU cache cleanup between samples
             del data_batch, raw_data, x0, condition
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 gc.collect()
                 torch.cuda.empty_cache()
+
+        # Free eval_samples memory
+        del eval_samples
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if not all_results or n_views is None:
+            return
 
         # Combine results from all samples
         # all_results: List[List[Tensor]] - [num_samples][num_configs] each tensor is [1, C, T, H, W]
