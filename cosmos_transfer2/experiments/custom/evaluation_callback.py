@@ -4,7 +4,6 @@
 # Evaluation Callback for Multi-Control Post Training
 # Runs inference on fixed test samples and saves videos for comparison across iterations.
 
-import gc
 import os
 from contextlib import nullcontext
 from functools import partial
@@ -182,34 +181,17 @@ class EveryNEvalMultiviewVideo(Callback):
 
     @torch.no_grad()
     def _run_evaluation(self, trainer, model, iteration: int):
-        """Run inference on fixed test samples and save videos."""
-        # Aggressive GPU memory cleanup before starting evaluation
-        # This is critical when running after other sampling callbacks
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            gc.collect()
-            torch.cuda.empty_cache()
+        """Run inference on fixed test samples and save videos.
 
-        # Synchronize all ranks before starting evaluation
-        if dist.is_initialized():
-            dist.barrier()
-
+        Note: This follows the same pattern as the original working version
+        without explicit dist.barrier() calls - the model's generate_samples_from_batch
+        handles synchronization internally.
+        """
         # Load eval samples if not already loaded
         if self.eval_batch is None:
             self.eval_batch = self._load_eval_samples(model)
-
-        # Check if we have valid samples - ALL ranks must agree
-        has_samples = self.eval_batch is not None and len(self.eval_batch) > 0
-        if dist.is_initialized():
-            # Broadcast the check result from rank 0 to ensure consistency
-            has_samples_tensor = torch.tensor([1 if has_samples else 0], device='cuda')
-            dist.broadcast(has_samples_tensor, src=0)
-            has_samples = has_samples_tensor.item() == 1
-
-        if not has_samples:
-            log.warning("[EveryNEvalMultiviewVideo] No valid samples, skipping evaluation")
-            return
+            if self.eval_batch is None:
+                return
 
         # Clear GPU cache before sampling
         if torch.cuda.is_available():
@@ -219,10 +201,6 @@ class EveryNEvalMultiviewVideo(Callback):
         all_results = []  # List of results per sample
 
         for sample_idx, eval_sample in enumerate(self.eval_batch):
-            # Synchronize before each sample
-            if dist.is_initialized():
-                dist.barrier()
-
             # Make a copy of the sample to avoid modifying cached version
             data_batch = {k: v.clone() if isinstance(v, torch.Tensor) else v
                           for k, v in eval_sample.items()}
@@ -233,16 +211,8 @@ class EveryNEvalMultiviewVideo(Callback):
             if hasattr(model, 'inplace_compute_text_embeddings_online'):
                 model.inplace_compute_text_embeddings_online(data_batch)
 
-            # Synchronize after text embedding computation
-            if dist.is_initialized():
-                dist.barrier()
-
             # Get raw data and condition
             raw_data, x0, condition = model.get_data_and_condition(data_batch)
-
-            # Synchronize after getting data and condition
-            if dist.is_initialized():
-                dist.barrier()
 
             def time_to_height_dimension(mv_video):
                 """Rearrange multiview video with views stacked vertically."""
@@ -275,10 +245,6 @@ class EveryNEvalMultiviewVideo(Callback):
                 data_batch[CONTROL_WEIGHT_KEY] = control_weight
 
                 for guidance in self.guidance:
-                    # Synchronize before generation
-                    if dist.is_initialized():
-                        dist.barrier()
-
                     sample = model.generate_samples_from_batch(
                         data_batch,
                         guidance=guidance,
@@ -288,16 +254,8 @@ class EveryNEvalMultiviewVideo(Callback):
                         is_negative_prompt=False,
                     )
 
-                    # Synchronize after generation
-                    if dist.is_initialized():
-                        dist.barrier()
-
                     if hasattr(model, "decode"):
                         sample = model.decode(sample)
-
-                    # Synchronize after decode
-                    if dist.is_initialized():
-                        dist.barrier()
 
                     sample_results.append(sample.float().cpu())
 
@@ -313,17 +271,10 @@ class EveryNEvalMultiviewVideo(Callback):
 
             all_results.append(sample_results)
 
-            # Aggressive GPU cache cleanup between samples
-            # Delete intermediate tensors first
+            # GPU cache cleanup between samples
             del data_batch, raw_data, x0, condition
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                gc.collect()
-                torch.cuda.empty_cache()
-
-        # Synchronize before saving
-        if dist.is_initialized():
-            dist.barrier()
 
         # Combine results from all samples
         # all_results: List[List[Tensor]] - [num_samples][num_configs] each tensor is [1, C, T, H, W]
@@ -339,10 +290,6 @@ class EveryNEvalMultiviewVideo(Callback):
         # Save outputs (only on rank 0)
         if is_tp_cp_pp_rank0():
             self._save_outputs(to_show, batch_size, n_views, iteration)
-
-        # Final synchronization
-        if dist.is_initialized():
-            dist.barrier()
 
     def _save_outputs(self, to_show: List[torch.Tensor], batch_size: int, n_views: int, iteration: int):
         """Save visualization outputs.
