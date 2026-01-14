@@ -493,40 +493,34 @@ custom_multi_control_post_train_small = dict(
             #     num_cond_frames=[0],
             #     save_s3=False,
             # ),
-            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=10,  # Run at iteration 10, 20
-                is_x0=False,
-                is_ema=True,
-                num_sampling_step=35,  # Same as production
-                guidance=[7],
-                fps=10,
-                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Same as production
-                num_cond_frames=[0],
-                save_s3=False,
-            ),
-            # DISABLED: eval and test_loss cause OOM even when running separately
-            # The issue is test_loss creates DataLoader at train_start which uses memory
-            # TODO: Fix memory issue before re-enabling
-            # every_n_eval=L(EveryNEvalMultiviewVideo)(
-            #     eval_dataset=_small_eval_dataset,
-            #     eval_sample_indices=[0, 1],
-            #     every_n=15,
+            # TEST: Disable ema, only run eval at iteration 1 to test if eval alone causes OOM
+            # every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+            #     every_n=10,
+            #     is_x0=False,
+            #     is_ema=True,
             #     num_sampling_step=35,
             #     guidance=[7],
             #     fps=10,
-            #     ctrl_hint_keys=[],
-            #     control_weights=[1.0],
+            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+            #     control_weights=[0.0, 1.0],
             #     num_cond_frames=[0],
-            #     save_local=True,
-            #     name="eval_test",
+            #     save_s3=False,
             # ),
-            # every_n_test_loss=L(EveryNTestLoss)(
-            #     eval_dataset=_small_eval_dataset,
-            #     every_n=15,
-            #     num_timestep_samples=4,
-            #     name="test_loss",
-            # ),
+            # TEST: Run eval alone at iteration 1
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
+                eval_dataset=create_eval_dataset(),
+                eval_sample_indices=[0],  # Only 1 sample to minimize memory
+                every_n=1,  # Run at iteration 1
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=[],
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_local=True,
+                name="eval_test",
+            ),
+            # every_n_test_loss - disabled for this test
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
