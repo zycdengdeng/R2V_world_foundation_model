@@ -303,6 +303,10 @@ class EveryNEvalMultiviewVideo(Callback):
         if is_tp_cp_pp_rank0():
             self._save_outputs(to_show, batch_size, n_views, iteration)
 
+        # Synchronize all ranks after evaluation (same pattern as original EveryNDrawSample)
+        if dist.is_initialized():
+            dist.barrier()
+
     def _save_outputs(self, to_show: List[torch.Tensor], batch_size: int, n_views: int, iteration: int):
         """Save visualization outputs.
 
