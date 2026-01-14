@@ -384,6 +384,9 @@ custom_multi_control_post_train = dict(
 
 
 # Smaller configuration for quick testing (500 iterations)
+# Create shared eval dataset once (avoid loading twice)
+_small_eval_dataset = create_eval_dataset()
+
 custom_multi_control_post_train_small = dict(
     defaults=[
         {"override /data_train": "custom_multi_control_train_data"},
@@ -503,8 +506,9 @@ custom_multi_control_post_train_small = dict(
                 save_s3=False,
             ),
             # Evaluation + Test loss run together at iter 15 (avoid conflict with ema at 10, 20)
+            # Both use shared _small_eval_dataset to avoid loading twice
             every_n_eval=L(EveryNEvalMultiviewVideo)(
-                eval_dataset=create_eval_dataset(),
+                eval_dataset=_small_eval_dataset,
                 eval_sample_indices=[0, 1],
                 every_n=15,  # Run at iter 15
                 num_sampling_step=35,
@@ -517,7 +521,7 @@ custom_multi_control_post_train_small = dict(
                 name="eval_test",
             ),
             every_n_test_loss=L(EveryNTestLoss)(
-                eval_dataset=create_eval_dataset(),
+                eval_dataset=_small_eval_dataset,
                 every_n=15,  # Run at iter 15 (same as eval)
                 num_timestep_samples=4,
                 name="test_loss",
