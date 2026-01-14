@@ -4,6 +4,7 @@
 # Evaluation Callback for Multi-Control Post Training
 # Runs inference on fixed test samples and saves videos for comparison across iterations.
 
+import gc
 import os
 from contextlib import nullcontext
 from functools import partial
@@ -193,8 +194,11 @@ class EveryNEvalMultiviewVideo(Callback):
             if self.eval_batch is None:
                 return
 
-        # Clear GPU cache before sampling
+        # Aggressive GPU memory cleanup before sampling
+        # This is important when running after other sampling callbacks
         if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            gc.collect()
             torch.cuda.empty_cache()
 
         # Process each sample individually and collect results
@@ -274,6 +278,8 @@ class EveryNEvalMultiviewVideo(Callback):
             # GPU cache cleanup between samples
             del data_batch, raw_data, x0, condition
             if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
                 torch.cuda.empty_cache()
 
         # Combine results from all samples
