@@ -115,7 +115,11 @@ class EveryNTestLoss(Callback):
 
     @torch.no_grad()
     def _compute_test_loss(self, model) -> float:
-        """Compute average loss on the entire test set."""
+        """Compute average loss on the entire test set.
+
+        IMPORTANT: All ranks must process the same samples in the same order.
+        No try/except per-sample to avoid rank divergence and NCCL deadlock.
+        """
         model.eval()
 
         device = model.tensor_kwargs.get('device', 'cuda')
@@ -129,31 +133,31 @@ class EveryNTestLoss(Callback):
             torch.cuda.empty_cache()
 
         for batch_idx, batch in enumerate(self.dataloader):
-            try:
-                # Move batch to device
-                for key, value in batch.items():
-                    if isinstance(value, torch.Tensor):
-                        if key in uint8_keys:
-                            batch[key] = value.to(device=device)
-                        else:
-                            batch[key] = value.to(**model.tensor_kwargs)
+            # Move batch to device (no try/except - all ranks must succeed together)
+            for key, value in batch.items():
+                if isinstance(value, torch.Tensor):
+                    if key in uint8_keys:
+                        batch[key] = value.to(device=device)
+                    else:
+                        batch[key] = value.to(**model.tensor_kwargs)
 
-                # Compute loss for this sample
-                sample_loss = self._compute_sample_loss(model, batch)
+            # Compute loss for this sample
+            # All ranks must call this together (internal collective ops)
+            sample_loss = self._compute_sample_loss(model, batch)
 
-                if sample_loss is not None:
-                    total_loss += sample_loss
-                    num_samples += 1
+            if sample_loss is not None:
+                total_loss += sample_loss
+                num_samples += 1
 
-                # Clear cache periodically
-                if batch_idx % 10 == 0 and torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-            except Exception as e:
-                log.warning(f"[EveryNTestLoss] Error processing sample {batch_idx}: {e}")
-                continue
+            # Clear cache periodically
+            if batch_idx % 10 == 0 and torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         model.train()
+
+        # Synchronize all ranks after test loss computation
+        if dist.is_initialized():
+            dist.barrier()
 
         if num_samples == 0:
             log.error("[EveryNTestLoss] No valid samples processed!")
