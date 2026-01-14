@@ -502,28 +502,27 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Evaluation on fixed test samples - DISABLED in small config due to OOM
-            # (conflicts with every_n_sample_ema memory usage)
-            # every_n_eval=L(EveryNEvalMultiviewVideo)(
-            #     eval_dataset=create_eval_dataset(),
-            #     eval_sample_indices=[0, 1],
-            #     every_n=10,
-            #     num_sampling_step=35,
-            #     guidance=[7],
-            #     fps=10,
-            #     ctrl_hint_keys=[],
-            #     control_weights=[1.0],
-            #     num_cond_frames=[0],
-            #     save_local=True,
-            #     name="eval_test",
-            # ),
-            # Test set loss - SAME AS PRODUCTION
-            every_n_test_loss=L(EveryNTestLoss)(
+            # Evaluation on fixed test samples - TEST: enable eval, disable test_loss
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                every_n=10,  # Run at iteration 10, 20
-                num_timestep_samples=4,  # Same as production
-                name="test_loss",
+                eval_sample_indices=[0, 1],
+                every_n=10,
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=[],
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_local=True,
+                name="eval_test",
             ),
+            # Test set loss - DISABLED to test if it causes OOM
+            # every_n_test_loss=L(EveryNTestLoss)(
+            #     eval_dataset=create_eval_dataset(),
+            #     every_n=10,
+            #     num_timestep_samples=4,
+            #     name="test_loss",
+            # ),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
