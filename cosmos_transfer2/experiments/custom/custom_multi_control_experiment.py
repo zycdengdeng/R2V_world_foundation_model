@@ -482,9 +482,10 @@ custom_multi_control_post_train_small = dict(
             # and may have NCCL issues with context parallelism
             #
             # Evaluation on fixed test samples (visual comparison)
+            # Use same number of samples as production config to catch issues early
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0],  # TESTING: only 1 sample for speed
+                eval_sample_indices=[0, 1, 2, 3],  # Same as production: 4 samples
                 every_n=1,  # TESTING: run at iteration 1
                 num_sampling_step=10,  # TESTING: fewer steps for speed
                 guidance=[7],
