@@ -96,22 +96,19 @@ class EveryNTestLoss(Callback):
 
         log.info(f"[EveryNTestLoss] Computing test loss at iteration {iteration}")
 
-        try:
-            test_loss = self._compute_test_loss(model)
+        # NOTE: No try/except here - if one rank fails, all must fail together
+        # to avoid NCCL deadlock. The barrier inside _compute_test_loss requires
+        # all ranks to reach it.
+        test_loss = self._compute_test_loss(model)
 
-            # Log to wandb
-            if is_tp_cp_pp_rank0() and wandb is not None and wandb.run:
-                wandb.log({
-                    "trainer/global_step": iteration,
-                    f"{self.name}/loss": test_loss,
-                }, step=iteration)
+        # Log to wandb
+        if is_tp_cp_pp_rank0() and wandb is not None and wandb.run:
+            wandb.log({
+                "trainer/global_step": iteration,
+                f"{self.name}/loss": test_loss,
+            }, step=iteration)
 
-            log.info(f"[EveryNTestLoss] Iteration {iteration}: test_loss = {test_loss:.6f}")
-
-        except Exception as e:
-            log.error(f"[EveryNTestLoss] Failed to compute test loss: {e}")
-            import traceback
-            traceback.print_exc()
+        log.info(f"[EveryNTestLoss] Iteration {iteration}: test_loss = {test_loss:.6f}")
 
     @torch.no_grad()
     def _compute_test_loss(self, model) -> float:

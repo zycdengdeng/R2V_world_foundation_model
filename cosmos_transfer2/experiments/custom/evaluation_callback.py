@@ -172,12 +172,10 @@ class EveryNEvalMultiviewVideo(Callback):
 
         log.info(f"[EveryNEvalMultiviewVideo] Running evaluation at iteration {iteration}")
 
-        try:
-            self._run_evaluation(self.trainer, model, iteration)
-        except Exception as e:
-            log.error(f"[EveryNEvalMultiviewVideo] Evaluation failed: {e}")
-            import traceback
-            traceback.print_exc()
+        # NOTE: No try/except here - if one rank fails, all must fail together
+        # to avoid NCCL deadlock. The barrier inside _run_evaluation requires
+        # all ranks to reach it.
+        self._run_evaluation(self.trainer, model, iteration)
 
     @torch.no_grad()
     def _run_evaluation(self, trainer, model, iteration: int):
@@ -199,6 +197,9 @@ class EveryNEvalMultiviewVideo(Callback):
         eval_samples = self._load_eval_samples(model)
         if eval_samples is None:
             log.warning("[EveryNEvalMultiviewVideo] No eval samples, all ranks skipping")
+            # Still need barrier to synchronize with other ranks
+            if dist.is_initialized():
+                dist.barrier()
             return
 
         # Process each sample individually and collect results
@@ -286,6 +287,9 @@ class EveryNEvalMultiviewVideo(Callback):
             torch.cuda.empty_cache()
 
         if not all_results or n_views is None:
+            # Still need barrier to synchronize with other ranks
+            if dist.is_initialized():
+                dist.barrier()
             return
 
         # Combine results from all samples
