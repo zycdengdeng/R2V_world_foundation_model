@@ -470,37 +470,57 @@ custom_multi_control_post_train_small = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=1,  # TESTING: log every iteration
-        max_iter=2,  # TESTING: only run 2 iterations
+        logging_iter=1,  # Log every iteration for visibility
+        max_iter=5,  # Run 5 iterations to test callbacks twice (at iter 2 and 4)
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=1, every_n=1, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
-            # Sample generation callbacks - DISABLED (use every_n_eval instead for testing)
-            # every_n_sample_reg and every_n_sample_ema are part of original codebase
-            # and may have NCCL issues with context parallelism
-            #
-            # Evaluation on fixed test samples (visual comparison)
-            # Use same number of samples as production config to catch issues early
-            every_n_eval=L(EveryNEvalMultiviewVideo)(
-                eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0, 1, 2, 3],  # Same as production: 4 samples
-                every_n=1,  # TESTING: run at iteration 1
-                num_sampling_step=10,  # TESTING: fewer steps for speed
+            # Sample generation for monitoring - SAME AS PRODUCTION
+            every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=2,  # Run at iteration 2, 4
+                is_x0=False,
+                is_ema=False,
+                num_sampling_step=35,  # Same as production
                 guidance=[7],
                 fps=10,
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[1.0],
-                num_cond_frames=[0],  # No condition frames
+                control_weights=[0.0, 1.0],  # Same as production
+                num_cond_frames=[0],
+                save_s3=False,
+            ),
+            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=2,  # Run at iteration 2, 4
+                is_x0=False,
+                is_ema=True,
+                num_sampling_step=35,  # Same as production
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[0.0, 1.0],  # Same as production
+                num_cond_frames=[0],
+                save_s3=False,
+            ),
+            # Evaluation on fixed test samples - SAME AS PRODUCTION
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
+                eval_dataset=create_eval_dataset(),
+                eval_sample_indices=[0, 1, 2, 3],  # Same as production: 4 samples
+                every_n=2,  # Run at iteration 2, 4
+                num_sampling_step=35,  # Same as production
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[1.0],  # Same as production
+                num_cond_frames=[0],
                 save_local=True,
                 name="eval_test",
             ),
-            # Test set loss for checkpoint selection
+            # Test set loss - SAME AS PRODUCTION
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=1,  # TESTING: run at iteration 1
-                num_timestep_samples=2,  # TESTING: only 2 timesteps for speed
+                every_n=2,  # Run at iteration 2, 4
+                num_timestep_samples=4,  # Same as production
                 name="test_loss",
             ),
             wandb=dict(save_s3=False),
