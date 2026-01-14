@@ -505,27 +505,28 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Evaluation + Test loss run together at iter 15 (avoid conflict with ema at 10, 20)
-            # Both use shared _small_eval_dataset to avoid loading twice
-            every_n_eval=L(EveryNEvalMultiviewVideo)(
-                eval_dataset=_small_eval_dataset,
-                eval_sample_indices=[0, 1],
-                every_n=15,  # Run at iter 15
-                num_sampling_step=35,
-                guidance=[7],
-                fps=10,
-                ctrl_hint_keys=[],
-                control_weights=[1.0],
-                num_cond_frames=[0],
-                save_local=True,
-                name="eval_test",
-            ),
-            every_n_test_loss=L(EveryNTestLoss)(
-                eval_dataset=_small_eval_dataset,
-                every_n=15,  # Run at iter 15 (same as eval)
-                num_timestep_samples=4,
-                name="test_loss",
-            ),
+            # DISABLED: eval and test_loss cause OOM even when running separately
+            # The issue is test_loss creates DataLoader at train_start which uses memory
+            # TODO: Fix memory issue before re-enabling
+            # every_n_eval=L(EveryNEvalMultiviewVideo)(
+            #     eval_dataset=_small_eval_dataset,
+            #     eval_sample_indices=[0, 1],
+            #     every_n=15,
+            #     num_sampling_step=35,
+            #     guidance=[7],
+            #     fps=10,
+            #     ctrl_hint_keys=[],
+            #     control_weights=[1.0],
+            #     num_cond_frames=[0],
+            #     save_local=True,
+            #     name="eval_test",
+            # ),
+            # every_n_test_loss=L(EveryNTestLoss)(
+            #     eval_dataset=_small_eval_dataset,
+            #     every_n=15,
+            #     num_timestep_samples=4,
+            #     name="test_loss",
+            # ),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
