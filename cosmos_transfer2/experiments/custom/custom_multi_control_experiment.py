@@ -483,11 +483,12 @@ custom_multi_control_post_train_small = dict(
             # Sample generation - DISABLED reg to save memory, only use EMA
             # every_n_sample_reg - disabled to save memory
             # TEST: Run all 3 callbacks at DIFFERENT iterations to isolate OOM
-            # - eval at iteration 1
-            # - test_loss at iteration 5
-            # - ema at iteration 10
+            # Using non-overlapping intervals within max_iter=15:
+            # - eval at iteration 3, 6, 9, 12, 15
+            # - test_loss at iteration 7, 14
+            # - ema at iteration 11
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=10,  # Run at iteration 10 only
+                every_n=11,  # Run at iteration 11 only (within max_iter=15)
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
@@ -498,11 +499,11 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Eval at iteration 1
+            # Eval at iteration 3, 6, 9, 12, 15
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0],  # Only 1 sample to minimize memory
-                every_n=1,  # Run at iteration 1
+                every_n=3,  # Run at 3, 6, 9, 12, 15
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
@@ -512,10 +513,10 @@ custom_multi_control_post_train_small = dict(
                 save_local=True,
                 name="eval_test",
             ),
-            # Test loss at iteration 5
+            # Test loss at iteration 7, 14
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=5,  # Run at iteration 5
+                every_n=7,  # Run at 7, 14
                 num_timestep_samples=4,
                 name="test_loss",
             ),
