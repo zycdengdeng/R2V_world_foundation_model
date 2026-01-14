@@ -477,19 +477,19 @@ custom_multi_control_post_train_small = dict(
             iter_speed=dict(hit_thres=10, every_n=10, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
-            # Sample generation for monitoring - SAME AS PRODUCTION
-            every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=10,  # Run at iteration 10, 20
-                is_x0=False,
-                is_ema=False,
-                num_sampling_step=35,  # Same as production
-                guidance=[7],
-                fps=10,
-                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[0.0, 1.0],  # Same as production
-                num_cond_frames=[0],
-                save_s3=False,
-            ),
+            # Sample generation - DISABLED reg to save memory, only use EMA
+            # every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
+            #     every_n=10,
+            #     is_x0=False,
+            #     is_ema=False,
+            #     num_sampling_step=35,
+            #     guidance=[7],
+            #     fps=10,
+            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+            #     control_weights=[0.0, 1.0],
+            #     num_cond_frames=[0],
+            #     save_s3=False,
+            # ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
                 every_n=10,  # Run at iteration 10, 20
                 is_x0=False,
@@ -502,21 +502,20 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Evaluation on fixed test samples - DISABLED for small config due to OOM
-            # The original every_n_sample callbacks already use most GPU memory
-            # every_n_eval=L(EveryNEvalMultiviewVideo)(
-            #     eval_dataset=create_eval_dataset(),
-            #     eval_sample_indices=[0, 1],  # 2 samples for testing (reduce memory)
-            #     every_n=10,  # Run at iteration 10, 20
-            #     num_sampling_step=35,
-            #     guidance=[7],
-            #     fps=10,
-            #     ctrl_hint_keys=[],  # No control visualization
-            #     control_weights=[1.0],
-            #     num_cond_frames=[0],
-            #     save_local=True,
-            #     name="eval_test",
-            # ),
+            # Evaluation on fixed test samples
+            every_n_eval=L(EveryNEvalMultiviewVideo)(
+                eval_dataset=create_eval_dataset(),
+                eval_sample_indices=[0, 1],  # 2 samples for testing (reduce memory)
+                every_n=10,  # Run at iteration 10, 20
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=[],  # No control visualization
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_local=True,
+                name="eval_test",
+            ),
             # Test set loss - SAME AS PRODUCTION
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
