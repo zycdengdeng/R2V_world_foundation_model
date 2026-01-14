@@ -4,6 +4,7 @@
 # Evaluation Callback for Multi-Control Post Training
 # Runs inference on fixed test samples and saves videos for comparison across iterations.
 
+import gc
 import os
 from contextlib import nullcontext
 from functools import partial
@@ -247,6 +248,14 @@ class EveryNEvalMultiviewVideo(Callback):
     @torch.no_grad()
     def _run_evaluation(self, trainer, model, iteration: int):
         """Run inference on fixed test samples and save videos."""
+        # Aggressive GPU memory cleanup before starting evaluation
+        # This is critical when running after other sampling callbacks
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            gc.collect()
+            torch.cuda.empty_cache()
+
         # Synchronize all ranks before starting evaluation
         if dist.is_initialized():
             dist.barrier()
@@ -373,8 +382,12 @@ class EveryNEvalMultiviewVideo(Callback):
 
             all_results.append(sample_results)
 
-            # Clear GPU cache between samples
+            # Aggressive GPU cache cleanup between samples
+            # Delete intermediate tensors first
+            del data_batch, raw_data, x0, condition
             if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                gc.collect()
                 torch.cuda.empty_cache()
 
         # Synchronize before saving
