@@ -474,39 +474,31 @@ custom_multi_control_post_train_small = dict(
     ),
     trainer=dict(
         logging_iter=5,  # Log every 5 iterations
-        max_iter=20,  # Run 20 iterations, callbacks at iter 10 and 20
+        max_iter=15,  # Run 15 iterations: eval@1, test_loss@5, ema@10
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=10, every_n=10, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             # Sample generation - DISABLED reg to save memory, only use EMA
-            # every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-            #     every_n=10,
-            #     is_x0=False,
-            #     is_ema=False,
-            #     num_sampling_step=35,
-            #     guidance=[7],
-            #     fps=10,
-            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-            #     control_weights=[0.0, 1.0],
-            #     num_cond_frames=[0],
-            #     save_s3=False,
-            # ),
-            # TEST: Disable ema, only run eval at iteration 1 to test if eval alone causes OOM
-            # every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-            #     every_n=10,
-            #     is_x0=False,
-            #     is_ema=True,
-            #     num_sampling_step=35,
-            #     guidance=[7],
-            #     fps=10,
-            #     ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-            #     control_weights=[0.0, 1.0],
-            #     num_cond_frames=[0],
-            #     save_s3=False,
-            # ),
-            # TEST: Run eval alone at iteration 1
+            # every_n_sample_reg - disabled to save memory
+            # TEST: Run all 3 callbacks at DIFFERENT iterations to isolate OOM
+            # - eval at iteration 1
+            # - test_loss at iteration 5
+            # - ema at iteration 10
+            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=10,  # Run at iteration 10 only
+                is_x0=False,
+                is_ema=True,
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[1.0],  # Only with control (simplified)
+                num_cond_frames=[0],
+                save_s3=False,
+            ),
+            # Eval at iteration 1
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0],  # Only 1 sample to minimize memory
@@ -520,7 +512,13 @@ custom_multi_control_post_train_small = dict(
                 save_local=True,
                 name="eval_test",
             ),
-            # every_n_test_loss - disabled for this test
+            # Test loss at iteration 5
+            every_n_test_loss=L(EveryNTestLoss)(
+                eval_dataset=create_eval_dataset(),
+                every_n=5,  # Run at iteration 5
+                num_timestep_samples=4,
+                name="test_loss",
+            ),
             wandb=dict(save_s3=False),
             wandb_10x=dict(save_s3=False),
             dataloader_speed=dict(save_s3=False),
