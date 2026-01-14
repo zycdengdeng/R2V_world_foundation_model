@@ -470,16 +470,16 @@ custom_multi_control_post_train_small = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=1,  # Log every iteration for visibility
-        max_iter=5,  # Run 5 iterations to test callbacks twice (at iter 2 and 4)
+        logging_iter=5,  # Log every 5 iterations
+        max_iter=20,  # Run 20 iterations, callbacks at iter 10 and 20
         callbacks=dict(
             heart_beat=dict(save_s3=False),
-            iter_speed=dict(hit_thres=1, every_n=1, save_s3=False),
+            iter_speed=dict(hit_thres=10, every_n=10, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             # Sample generation for monitoring - SAME AS PRODUCTION
             every_n_sample_reg=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=2,  # Run at iteration 2, 4
+                every_n=10,  # Run at iteration 10, 20
                 is_x0=False,
                 is_ema=False,
                 num_sampling_step=35,  # Same as production
@@ -491,7 +491,7 @@ custom_multi_control_post_train_small = dict(
                 save_s3=False,
             ),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=2,  # Run at iteration 2, 4
+                every_n=10,  # Run at iteration 10, 20
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,  # Same as production
@@ -506,7 +506,7 @@ custom_multi_control_post_train_small = dict(
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0, 1, 2, 3],  # Same as production: 4 samples
-                every_n=2,  # Run at iteration 2, 4
+                every_n=10,  # Run at iteration 10, 20
                 num_sampling_step=35,  # Same as production
                 guidance=[7],
                 fps=10,
@@ -519,7 +519,7 @@ custom_multi_control_post_train_small = dict(
             # Test set loss - SAME AS PRODUCTION
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=2,  # Run at iteration 2, 4
+                every_n=10,  # Run at iteration 10, 20
                 num_timestep_samples=4,  # Same as production
                 name="test_loss",
             ),
