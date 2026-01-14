@@ -473,37 +473,35 @@ custom_multi_control_post_train_small = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=5,  # Log every 5 iterations
-        max_iter=15,  # Run 15 iterations: eval@1, test_loss@5, ema@10
+        logging_iter=1,  # Log every iteration for debugging
+        max_iter=5,  # FAST TEST: only 5 iterations
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=10, every_n=10, save_s3=False),
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
-            # Sample generation - DISABLED reg to save memory, only use EMA
-            # every_n_sample_reg - disabled to save memory
-            # TEST: Run all 3 callbacks at DIFFERENT iterations to isolate OOM
-            # Using non-overlapping intervals within max_iter=15:
-            # - eval at iteration 3, 6, 9, 12, 15
-            # - test_loss at iteration 7, 14
-            # - ema at iteration 11
+            # FAST TEST: Run each callback ONCE at different iterations
+            # - eval at iteration 2
+            # - test_loss at iteration 3
+            # - ema at iteration 5
+            # No overlaps, minimal iterations!
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=11,  # Run at iteration 11 only (within max_iter=15)
+                every_n=5,  # Run at iteration 5 only
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
                 ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
-                control_weights=[1.0],  # Only with control (simplified)
+                control_weights=[1.0],
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Eval at iteration 3, 6, 9, 12, 15
+            # Eval at iteration 2
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0],  # Only 1 sample to minimize memory
-                every_n=3,  # Run at 3, 6, 9, 12, 15
+                eval_sample_indices=[0],  # Only 1 sample
+                every_n=2,  # Run at iteration 2
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
@@ -513,10 +511,10 @@ custom_multi_control_post_train_small = dict(
                 save_local=True,
                 name="eval_test",
             ),
-            # Test loss at iteration 7, 14
+            # Test loss at iteration 3
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=7,  # Run at 7, 14
+                every_n=3,  # Run at iteration 3
                 num_timestep_samples=4,
                 name="test_loss",
             ),
