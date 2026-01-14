@@ -502,11 +502,11 @@ custom_multi_control_post_train_small = dict(
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Evaluation on fixed test samples - runs at iter 15 (avoid conflict with ema at 10, 20)
+            # Evaluation + Test loss run together at iter 15 (avoid conflict with ema at 10, 20)
             every_n_eval=L(EveryNEvalMultiviewVideo)(
                 eval_dataset=create_eval_dataset(),
                 eval_sample_indices=[0, 1],
-                every_n=15,  # Run at iter 15 only (not 10 or 20)
+                every_n=15,  # Run at iter 15
                 num_sampling_step=35,
                 guidance=[7],
                 fps=10,
@@ -516,10 +516,9 @@ custom_multi_control_post_train_small = dict(
                 save_local=True,
                 name="eval_test",
             ),
-            # Test set loss - runs at iter 12 (avoid conflict with ema at 10, 20 and eval at 15)
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=12,  # Run at iter 12 only
+                every_n=15,  # Run at iter 15 (same as eval)
                 num_timestep_samples=4,
                 name="test_loss",
             ),
