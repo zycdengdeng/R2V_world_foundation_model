@@ -248,7 +248,7 @@ custom_multi_control_post_train = dict(
     scheduler=dict(
         f_max=[1.0],  # Peak lr = 1e-4
         f_min=[0.1],  # Final lr = 1e-5 (decay 10x)
-        warm_up_steps=[500],  # 10% warmup for large batch
+        warm_up_steps=[200],  # 4% warmup
         cycle_lengths=[5000],  # Full training cycle
     ),
     model=dict(
