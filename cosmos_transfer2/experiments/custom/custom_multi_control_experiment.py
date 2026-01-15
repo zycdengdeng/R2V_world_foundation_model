@@ -309,7 +309,7 @@ custom_multi_control_post_train = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=20,  # Log every 20 iterations
+        logging_iter=50,  # Log every 50 iterations
         grad_accum_iter=4,  # Accumulate gradients over 4 steps (effective batch_size=4)
         max_iter=5000,  # Fine-tuning for 5000 iterations with reset scheduler
         callbacks=dict(
