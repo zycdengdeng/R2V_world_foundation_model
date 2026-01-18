@@ -332,21 +332,20 @@ custom_multi_control_post_train = dict(
                 num_cond_frames=[0],
                 save_s3=False,
             ),
-            # Evaluation on fixed test samples - use interval 700 (7 times total)
-            # Only 1 overlap with ema at iteration 3500
-            every_n_eval=L(EveryNEvalMultiviewVideo)(
-                eval_dataset=create_eval_dataset(),
-                eval_sample_indices=[0, 1],  # Reduced to 2 samples to save memory
-                every_n=700,  # Run at 700, 1400, 2100, 2800, 3500, 4200, 4900
-                num_sampling_step=35,
-                guidance=[7],
-                fps=10,
-                ctrl_hint_keys=[],
-                control_weights=[1.0],
-                num_cond_frames=[0],
-                save_local=True,
-                name="eval_test",
-            ),
+            # DISABLED: eval callback causes OOM at iteration 700
+            # every_n_eval=L(EveryNEvalMultiviewVideo)(
+            #     eval_dataset=create_eval_dataset(),
+            #     eval_sample_indices=[0, 1],
+            #     every_n=700,
+            #     num_sampling_step=35,
+            #     guidance=[7],
+            #     fps=10,
+            #     ctrl_hint_keys=[],
+            #     control_weights=[1.0],
+            #     num_cond_frames=[0],
+            #     save_local=True,
+            #     name="eval_test",
+            # ),
             # Test set loss - frequent for checkpoint selection (lightweight, no inference)
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
