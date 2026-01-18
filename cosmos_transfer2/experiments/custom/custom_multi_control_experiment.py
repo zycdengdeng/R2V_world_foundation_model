@@ -234,9 +234,10 @@ custom_multi_control_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,  # Load from Transfer2.5 multiview
-        load_training_state=False,  # Don't load optimizer state
-        strict_resume=False,  # Allow missing keys (blur/depth heads will be random initialized)
+        # Resume from iteration 600 checkpoint
+        load_path="/mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20260115_175859/checkpoints/iter_000000600",
+        load_training_state=True,  # Load optimizer, scheduler, trainer state to resume
+        strict_resume=False,  # Allow missing keys
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
     ),
