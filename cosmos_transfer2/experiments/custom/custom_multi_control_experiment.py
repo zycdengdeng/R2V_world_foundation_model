@@ -234,8 +234,8 @@ custom_multi_control_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Resume from iteration 600 checkpoint
-        load_path="/mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20260115_175859/checkpoints/iter_000000600",
+        # Resume from iteration 1000 checkpoint
+        load_path="/mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20260118_204626/checkpoints/iter_000001000",
         load_training_state=True,  # Load optimizer, scheduler, trainer state to resume
         strict_resume=False,  # Allow missing keys
         load_from_object_store=dict(enabled=False),
