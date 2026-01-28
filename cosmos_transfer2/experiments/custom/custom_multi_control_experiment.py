@@ -250,7 +250,7 @@ custom_multi_control_post_train = dict(
         f_max=[1.0],  # Peak lr = 3e-5
         f_min=[0.33],  # Final lr = 1e-5 (3e-5 * 0.33)
         warm_up_steps=[5100],  # Short warmup: 5001-5100 (100 steps)
-        cycle_lengths=[10000],  # Extended to 10000 total
+        cycle_lengths=[8000],  # Extended to 8000 total
     ),
     model=dict(
         config=dict(
@@ -312,7 +312,7 @@ custom_multi_control_post_train = dict(
     trainer=dict(
         logging_iter=50,  # Log every 50 iterations
         grad_accum_iter=4,  # Accumulate gradients over 4 steps (effective batch_size=4)
-        max_iter=10000,  # Extended: 5000 original + 5000 warm restart
+        max_iter=8000,  # Extended: 5000 original + 3000 warm restart
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
