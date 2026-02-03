@@ -349,25 +349,6 @@ def save_per_view_results(
 
         logger.info(f"  View {v} ({short_name}): generated + gt saved")
 
-    # Save per-view control inputs
-    control_map = {
-        'control_input_blur': 'control_blur',
-        'control_input_depth': 'control_depth',
-        'control_input_hdmap_bbox': 'control_hdmap',
-    }
-    for key, suffix in control_map.items():
-        if key in batch and batch[key] is not None:
-            ctrl = batch[key].float()
-            if ctrl.max() > 1:
-                ctrl = ctrl / 255.0
-            # (B, C, V*T, H, W) -> (V, B, C, T, H, W)
-            ctrl_views = rearrange(ctrl, "B C (V T) H W -> V B C T H W", V=n_views)
-            for v in range(n_views):
-                cam_name = camera_names[v] if v < len(camera_names) else f"view_{v}"
-                short_name = cam_name.replace("camera_", "")
-                ctrl_path = sample_dir / f"{short_name}_{suffix}"
-                save_img_or_video(ctrl_views[v, 0].cpu(), str(ctrl_path), fps=fps)
-
     logger.info(f"All per-view results saved to: {sample_dir}")
 
 
