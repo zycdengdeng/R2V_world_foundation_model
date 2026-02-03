@@ -462,8 +462,8 @@ custom_multi_control_post_train_small = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=1,  # Log every iteration for debugging
-        max_iter=5,  # FAST TEST: only 5 iterations
+        logging_iter=50,  # Log every 50 iterations
+        max_iter=50000,  # Long run to hold the server
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=10, every_n=10, save_s3=False),
