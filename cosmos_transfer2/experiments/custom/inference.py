@@ -5,27 +5,34 @@
 Standalone inference script for custom multi-control model.
 
 Supports both single-GPU and multi-GPU inference with DCP checkpoints.
+Flow aligned with evaluation_callback.py (proven working during training).
 
 Usage:
-    # Single GPU inference on one test sample
-    CUDA_VISIBLE_DEVICES=0 python -m cosmos_transfer2.experiments.custom.inference \
-        --ckpt_path /mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20251226_155343/checkpoints/iter_000005000 \
-        --output_dir ./inference_output \
-        --sample_idx 0
-
-    # Multi-GPU inference (4 GPUs with context parallelism)
-    torchrun --nproc_per_node=4 --master_port=12345 \
+    # Single sample inference (8 GPUs, 7 views)
+    torchrun --nproc_per_node=8 --master_port=12345 \
         -m cosmos_transfer2.experiments.custom.inference \
         --ckpt_path /path/to/checkpoints/iter_000005000 \
         --output_dir ./inference_output \
-        --context_parallel_size 4
+        --context_parallel_size 8 \
+        --num_views 7 \
+        --sample_idx 0
+
+    # Full test set inference (all samples)
+    torchrun --nproc_per_node=8 --master_port=12345 \
+        -m cosmos_transfer2.experiments.custom.inference \
+        --ckpt_path /path/to/checkpoints/iter_000005000 \
+        --output_dir ./inference_output \
+        --context_parallel_size 8 \
+        --num_views 7 \
+        --all_samples
 """
 
 import argparse
+import gc
 import importlib
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List
 
 import torch
 import torch.distributed as dist
@@ -34,6 +41,11 @@ from loguru import logger
 
 # Disable fused attention for compatibility
 os.environ["NVTE_FUSED_ATTN"] = "0"
+
+# Use the same constants as the official callbacks
+from cosmos_transfer2._src.predict2.models.video2world_model import NUM_CONDITIONAL_FRAMES_KEY
+
+CONTROL_WEIGHT_KEY = "control_weight"
 
 
 def parse_args():
@@ -45,7 +57,9 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default="/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_output",
                         help="Output directory for generated videos")
     parser.add_argument("--sample_idx", type=int, default=0,
-                        help="Test sample index to use")
+                        help="Test sample index to use (ignored if --all_samples)")
+    parser.add_argument("--all_samples", action="store_true", default=False,
+                        help="Run inference on ALL test samples")
     parser.add_argument("--context_parallel_size", type=int, default=1,
                         help="Context parallel size (number of GPUs)")
     parser.add_argument("--num_views", type=int, default=None,
@@ -160,12 +174,13 @@ def load_model_and_config(experiment_name: str, ckpt_path: str, context_parallel
     return model, config
 
 
-def create_test_dataset(sample_idx: int = 0, num_views: int = 1):
-    """Create test dataset and get one sample.
+def create_test_dataset(num_views: int = 7):
+    """Create test dataset (all test samples).
 
     Args:
-        sample_idx: Index of sample to load
-        num_views: Number of camera views to use (must be <= context_parallel_size)
+        num_views: Number of camera views to use
+    Returns:
+        test_dataset: The full test dataset
     """
     from cosmos_transfer2.experiments.custom.custom_multi_control_experiment import (
         BLUR_DATASET_DIR,
@@ -176,7 +191,6 @@ def create_test_dataset(sample_idx: int = 0, num_views: int = 1):
     )
     from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
         MultiControlMultiviewDataset,
-        collate_fn,
     )
 
     # Use only the first num_views cameras
@@ -200,37 +214,36 @@ def create_test_dataset(sample_idx: int = 0, num_views: int = 1):
     if len(test_dataset) == 0:
         raise ValueError("No test samples found!")
 
-    if sample_idx >= len(test_dataset):
-        logger.warning(f"Sample index {sample_idx} out of range, using index 0")
-        sample_idx = 0
+    return test_dataset
 
-    # Get sample and collate
+
+def load_sample(test_dataset, sample_idx: int, model) -> Dict[str, Any]:
+    """Load a single sample from the test dataset and prepare for inference.
+
+    Follows the same pattern as evaluation_callback.py:_load_eval_samples().
+    Each rank loads the same data independently (dataset is deterministic).
+    """
+    from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
+
+    uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
+
     sample = test_dataset[sample_idx]
     batch = collate_fn([sample])
 
-    logger.info(f"Loaded sample {sample_idx}: {sample['__key__']}")
-    logger.info(f"Batch keys: {list(batch.keys())}")
-
-    return batch, test_dataset
-
-
-def prepare_batch(batch: Dict[str, Any], model) -> Dict[str, Any]:
-    """Move batch to GPU and prepare for inference."""
-    device = torch.device("cuda")
-    uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
-
+    # Move to device (same as eval callback)
     for key, value in batch.items():
         if isinstance(value, torch.Tensor):
             if key in uint8_keys:
-                batch[key] = value.to(device=device)
+                batch[key] = value.to(device=torch.device("cuda"))
             else:
                 batch[key] = value.to(**model.tensor_kwargs)
 
+    logger.info(f"Loaded sample {sample_idx}: {sample['__key__']}")
     return batch
 
 
 @torch.no_grad()
-def run_inference(
+def run_inference_single(
     model,
     batch: Dict[str, Any],
     guidance: float = 7.0,
@@ -238,26 +251,32 @@ def run_inference(
     num_conditional_frames: int = 0,
     control_weight: float = 1.0,
 ):
-    """Run inference on a batch.
+    """Run inference on a single batch.
 
-    Based on the evaluation callback flow in evaluation_callback.py
+    Flow aligned with evaluation_callback.py:_run_evaluation():
+    1. Compute text embeddings online
+    2. Get data and condition
+    3. Set control parameters (AFTER get_data_and_condition)
+    4. Generate samples
+    5. Decode
     """
-    # Set control parameters
-    batch["num_conditional_frames"] = num_conditional_frames
-    batch["control_weight"] = control_weight
-
-    # Compute text embeddings online (same as training)
+    # Step 1: Compute text embeddings online (same as training & eval callback)
     if hasattr(model, 'inplace_compute_text_embeddings_online'):
         model.inplace_compute_text_embeddings_online(batch)
         logger.info("Text embeddings computed")
 
-    # Get data and condition
+    # Step 2: Get data and condition
     raw_data, x0, condition = model.get_data_and_condition(batch)
-    logger.info(f"raw_data shape: {raw_data.shape}")
-    logger.info(f"x0 (latent) shape: {x0.shape}")
+    logger.info(f"raw_data shape: {raw_data.shape}, x0 (latent) shape: {x0.shape}")
 
-    # Generate samples
-    logger.info(f"Generating with guidance={guidance}, steps={num_steps}...")
+    # Step 3: Set control parameters AFTER get_data_and_condition
+    # (matches evaluation_callback.py and EveryNDrawSampleMultiviewVideo)
+    batch[NUM_CONDITIONAL_FRAMES_KEY] = num_conditional_frames
+    batch[CONTROL_WEIGHT_KEY] = control_weight
+
+    # Step 4: Generate samples
+    logger.info(f"Generating with guidance={guidance}, steps={num_steps}, "
+                f"cond_frames={num_conditional_frames}, ctrl_weight={control_weight}...")
     sample = model.generate_samples_from_batch(
         batch,
         guidance=guidance,
@@ -268,7 +287,7 @@ def run_inference(
     )
     logger.info(f"Generated latent shape: {sample.shape}")
 
-    # Decode
+    # Step 5: Decode
     if hasattr(model, "decode"):
         generated = model.decode(sample)
         logger.info(f"Decoded video shape: {generated.shape}")
@@ -384,9 +403,10 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Checkpoint: {args.ckpt_path}")
     logger.info(f"Experiment: {args.experiment}")
-    logger.info(f"Sample index: {args.sample_idx}")
+    logger.info(f"Mode: {'all samples' if args.all_samples else f'sample_idx={args.sample_idx}'}")
     logger.info(f"Context parallel size: {args.context_parallel_size}")
     logger.info(f"Number of views: {num_views}")
+    logger.info(f"Guidance: {args.guidance}, Steps: {args.num_steps}")
     logger.info("=" * 60)
 
     # Validate: num_views must be <= context_parallel_size
@@ -396,7 +416,7 @@ def main():
             f"Use --context_parallel_size {num_views} or --num_views {args.context_parallel_size}"
         )
 
-    # Initialize distributed if needed
+    # Initialize distributed
     process_group, is_rank0 = init_distributed(args.context_parallel_size)
 
     try:
@@ -409,36 +429,71 @@ def main():
             process_group=process_group,
         )
 
-        # Create test dataset and get sample
-        batch, test_dataset = create_test_dataset(args.sample_idx, num_views=num_views)
+        # Create test dataset
+        test_dataset = create_test_dataset(num_views=num_views)
 
-        # Prepare batch for inference
-        batch = prepare_batch(batch, model)
+        # Determine which samples to process
+        if args.all_samples:
+            sample_indices = list(range(len(test_dataset)))
+        else:
+            if args.sample_idx >= len(test_dataset):
+                logger.warning(f"Sample index {args.sample_idx} out of range, using 0")
+                sample_indices = [0]
+            else:
+                sample_indices = [args.sample_idx]
 
-        # Run inference
-        logger.info("Running inference...")
-        generated, raw_data = run_inference(
-            model=model,
-            batch=batch,
-            guidance=args.guidance,
-            num_steps=args.num_steps,
-            num_conditional_frames=0,
-            control_weight=1.0,
-        )
+        logger.info(f"Will process {len(sample_indices)} sample(s): {sample_indices}")
 
-        # Save results (only on rank 0)
-        if is_rank0:
-            save_results(
-                generated=generated,
-                raw_data=raw_data,
+        # Process each sample (following eval callback pattern: one at a time with cleanup)
+        for i, sample_idx in enumerate(sample_indices):
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Processing sample {i+1}/{len(sample_indices)} (idx={sample_idx})")
+            logger.info(f"{'='*60}")
+
+            # Aggressive GPU cleanup before each sample (same as eval callback)
+            torch.cuda.empty_cache()
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            # Load single sample (each rank loads same data independently)
+            batch = load_sample(test_dataset, sample_idx, model)
+
+            # Run inference
+            generated, raw_data = run_inference_single(
+                model=model,
                 batch=batch,
-                output_dir=args.output_dir,
-                sample_idx=args.sample_idx,
-                fps=args.fps,
+                guidance=args.guidance,
+                num_steps=args.num_steps,
+                num_conditional_frames=0,
+                control_weight=1.0,
             )
 
+            # Save results (only on rank 0)
+            if is_rank0:
+                save_results(
+                    generated=generated,
+                    raw_data=raw_data,
+                    batch=batch,
+                    output_dir=args.output_dir,
+                    sample_idx=sample_idx,
+                    fps=args.fps,
+                )
+
+            # Aggressive cleanup after each sample (same as eval callback)
+            del batch, generated, raw_data
+            torch.cuda.empty_cache()
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            # Synchronize all ranks after each sample
+            if dist.is_initialized():
+                dist.barrier()
+
+            logger.info(f"Sample {sample_idx} completed")
+
         logger.info("=" * 60)
-        logger.info("SUCCESS! Inference completed.")
+        logger.info(f"SUCCESS! All {len(sample_indices)} sample(s) completed.")
+        logger.info(f"Results saved to: {args.output_dir}")
         logger.info("=" * 60)
 
     except Exception as e:
