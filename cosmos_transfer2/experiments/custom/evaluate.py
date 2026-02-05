@@ -329,11 +329,19 @@ def format_mean_std(values: List[float], precision: int = 4) -> str:
     return f"{mean:.{precision}f} ± {std:.{precision}f}"
 
 
-def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
-    """Run full evaluation."""
+def evaluate(input_dir: str, output_csv: str, device: str = "cuda", fvd_frames: int = 16):
+    """Run full evaluation.
+
+    Args:
+        input_dir: Path to inference output directory
+        output_csv: Path to save metrics CSV
+        device: Computation device
+        fvd_frames: Number of consecutive frames for FVD (default: 16, standard for paper comparison)
+    """
 
     logger.info(f"Evaluating: {input_dir}")
     logger.info(f"Device: {device}")
+    logger.info(f"FVD frames: {fvd_frames} (consecutive, center-cropped)")
 
     # Find all video pairs
     pairs_by_view = find_video_pairs(input_dir)
@@ -463,6 +471,7 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
     # ========================================================================
     logger.info(f"\n{'='*60}")
     logger.info("Computing FVD (Fréchet Video Distance)...")
+    logger.info(f"Using {fvd_frames} consecutive frames (center-cropped)")
     logger.info(f"{'='*60}")
 
     # Collect all videos for FVD
@@ -480,8 +489,19 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
             gt_frames_np = read_video_frames(gt_path)
             n = min(len(gen_frames_np), len(gt_frames_np))
 
-            gen_video = frames_to_tensor(gen_frames_np[:n])  # (T, C, H, W)
-            gt_video = frames_to_tensor(gt_frames_np[:n])
+            # Extract center consecutive frames for FVD (standard: 16 frames)
+            if n >= fvd_frames:
+                # Center crop: take middle fvd_frames consecutive frames
+                start_idx = (n - fvd_frames) // 2
+                end_idx = start_idx + fvd_frames
+                gen_video = frames_to_tensor(gen_frames_np[start_idx:end_idx])  # (fvd_frames, C, H, W)
+                gt_video = frames_to_tensor(gt_frames_np[start_idx:end_idx])
+            else:
+                # Video too short, use all frames (with warning)
+                logger.warning(f"Video {sample_id}/{view_name} has only {n} frames, "
+                               f"using all (need {fvd_frames} for standard FVD)")
+                gen_video = frames_to_tensor(gen_frames_np[:n])
+                gt_video = frames_to_tensor(gt_frames_np[:n])
 
             view_gen_videos.append(gen_video)
             view_gt_videos.append(gt_video)
@@ -637,12 +657,16 @@ def main():
                         help="Path to save metrics CSV (default: {input_dir}/metrics.csv)")
     parser.add_argument("--device", type=str, default="cuda",
                         help="Device for computation")
+    parser.add_argument("--fvd_frames", type=int, default=16,
+                        help="Number of consecutive frames for FVD computation "
+                             "(default: 16, standard for paper comparison). "
+                             "Uses center-cropped consecutive frames.")
     args = parser.parse_args()
 
     if args.output_csv is None:
         args.output_csv = str(Path(args.input_dir) / "metrics.csv")
 
-    evaluate(args.input_dir, args.output_csv, args.device)
+    evaluate(args.input_dir, args.output_csv, args.device, args.fvd_frames)
 
 
 if __name__ == "__main__":
