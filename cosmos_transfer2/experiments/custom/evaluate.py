@@ -278,8 +278,8 @@ def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
                         # Convert to I3D input format: (N, C, T, H, W) - PyTorch style
                         v = v.permute(1, 0, 2, 3).unsqueeze(0)  # (1, C, T, 224, 224)
 
-                        # Scale to [-1, 1] as expected by I3D
-                        v = v * 2 - 1
+                        # Scale to [0, 255] as expected by StyleGAN-V I3D
+                        v = (v * 255).clamp(0, 255)
 
                         # Extract features
                         feat = i3d(v)  # (1, 400) logits
