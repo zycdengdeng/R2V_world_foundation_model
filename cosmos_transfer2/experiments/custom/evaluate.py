@@ -123,6 +123,15 @@ def extract_and_save_frames(video_dir: str, output_frames_dir: str,
     """
     gen_dir = Path(output_frames_dir) / "generated"
     gt_dir = Path(output_frames_dir) / "gt"
+
+    # Check if frames already exist (skip if cached)
+    if gen_dir.exists() and gt_dir.exists():
+        existing_gen = list(gen_dir.glob("*.png"))
+        existing_gt = list(gt_dir.glob("*.png"))
+        if len(existing_gen) > 0 and len(existing_gen) == len(existing_gt):
+            logger.info(f"Using cached frames: {len(existing_gen)} pairs in {output_frames_dir}")
+            return str(gen_dir), str(gt_dir), len(existing_gen)
+
     gen_dir.mkdir(parents=True, exist_ok=True)
     gt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -148,6 +157,14 @@ def extract_view_frames(pairs: List[Tuple[str, str, str]], output_dir: str) -> T
     """Extract frames for a single view."""
     gen_dir = Path(output_dir) / "gen"
     gt_dir = Path(output_dir) / "gt"
+
+    # Check if frames already exist (skip if cached)
+    if gen_dir.exists() and gt_dir.exists():
+        existing_gen = list(gen_dir.glob("*.png"))
+        existing_gt = list(gt_dir.glob("*.png"))
+        if len(existing_gen) > 0 and len(existing_gen) == len(existing_gt):
+            return str(gen_dir), str(gt_dir)
+
     gen_dir.mkdir(parents=True, exist_ok=True)
     gt_dir.mkdir(parents=True, exist_ok=True)
 
