@@ -192,12 +192,35 @@ def compute_fid(gen_frames_dir: str, gt_frames_dir: str) -> float:
 # Distribution metrics: FVD (Fréchet Video Distance)
 # ============================================================================
 
+# I3D weights URL (from StyleGAN-V / TATS)
+I3D_WEIGHTS_URL = "https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt?dl=1"
+I3D_WEIGHTS_PATH = Path.home() / ".cache" / "fvd" / "i3d_torchscript.pt"
+
+
+def download_i3d_weights() -> str:
+    """Download I3D weights if not cached."""
+    if I3D_WEIGHTS_PATH.exists():
+        return str(I3D_WEIGHTS_PATH)
+
+    logger.info(f"Downloading I3D weights to {I3D_WEIGHTS_PATH}...")
+    I3D_WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    import urllib.request
+    try:
+        urllib.request.urlretrieve(I3D_WEIGHTS_URL, str(I3D_WEIGHTS_PATH))
+        logger.info("I3D weights downloaded successfully")
+        return str(I3D_WEIGHTS_PATH)
+    except Exception as e:
+        logger.warning(f"Failed to download I3D weights: {e}")
+        return None
+
+
 def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
                 device: str = "cuda") -> float:
     """Compute FVD between two lists of video tensors.
 
     Each video should be (T, C, H, W) in [0, 1].
-    FVD uses I3D features to measure video quality distribution.
+    FVD uses I3D features (standard) to measure video quality distribution.
 
     Args:
         gen_videos: List of generated video tensors
@@ -207,86 +230,90 @@ def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
     Returns:
         FVD score (lower is better)
     """
-    # Try pytorch-fvd package first
+    from scipy import linalg
+
+    def frechet_distance(mu1, sigma1, mu2, sigma2):
+        """Compute Fréchet distance between two Gaussians."""
+        diff = mu1 - mu2
+        covmean, _ = linalg.sqrtm(sigma1 @ sigma2, disp=False)
+        if np.iscomplexobj(covmean):
+            covmean = covmean.real
+        return float(diff @ diff + np.trace(sigma1 + sigma2 - 2 * covmean))
+
+    # Try I3D (standard for FVD)
+    i3d_path = download_i3d_weights()
+    if i3d_path is not None:
+        try:
+            logger.info("Computing FVD using I3D features (standard)...")
+            i3d = torch.jit.load(i3d_path).eval().to(device)
+
+            def extract_i3d_features(videos: List[torch.Tensor]) -> np.ndarray:
+                features = []
+                with torch.no_grad():
+                    for video in videos:
+                        # video: (T, C, H, W) -> (1, T, H, W, C)
+                        v = video.permute(0, 2, 3, 1).unsqueeze(0).to(device)
+
+                        # I3D expects (N, T, H, W, C) in [0, 1], resize to 224x224
+                        v = F.interpolate(
+                            v.permute(0, 1, 4, 2, 3),  # (N, T, C, H, W)
+                            size=(224, 224),
+                            mode='bilinear',
+                            align_corners=False
+                        ).permute(0, 1, 3, 4, 2)  # back to (N, T, H, W, C)
+
+                        # Scale to [-1, 1] as expected by I3D
+                        v = v * 2 - 1
+
+                        # Extract features
+                        feat = i3d(v)  # (1, 400) logits
+                        features.append(feat.cpu().numpy())
+
+                return np.concatenate(features, axis=0)
+
+            gen_feats = extract_i3d_features(gen_videos)
+            gt_feats = extract_i3d_features(gt_videos)
+
+            # Compute statistics
+            mu_gen, mu_gt = np.mean(gen_feats, axis=0), np.mean(gt_feats, axis=0)
+            sigma_gen = np.cov(gen_feats, rowvar=False) if gen_feats.shape[0] > 1 else np.zeros((gen_feats.shape[1], gen_feats.shape[1]))
+            sigma_gt = np.cov(gt_feats, rowvar=False) if gt_feats.shape[0] > 1 else np.zeros((gt_feats.shape[1], gt_feats.shape[1]))
+
+            return frechet_distance(mu_gen, sigma_gen, mu_gt, sigma_gt)
+
+        except Exception as e:
+            logger.warning(f"I3D failed: {e}, falling back to R3D-18")
+
+    # Fallback: R3D-18
     try:
-        from pytorch_fvd import fvd as pytorch_fvd
-        from pytorch_fvd.fvd import load_i3d_pretrained
-
-        logger.info("Computing FVD using pytorch-fvd...")
-        i3d = load_i3d_pretrained(device=device)
-
-        # Stack videos: (N, T, C, H, W)
-        gen_stack = torch.stack(gen_videos).to(device)
-        gt_stack = torch.stack(gt_videos).to(device)
-
-        # pytorch-fvd expects (N, C, T, H, W)
-        gen_stack = gen_stack.permute(0, 2, 1, 3, 4)
-        gt_stack = gt_stack.permute(0, 2, 1, 3, 4)
-
-        # Compute FVD
-        fvd_score = pytorch_fvd.compute_fvd(gen_stack, gt_stack, i3d, device)
-        return float(fvd_score)
-
-    except ImportError:
-        pass
-
-    # Fallback: manual implementation using scipy
-    try:
-        from scipy import linalg
         import torchvision.models.video as video_models
 
         logger.info("Computing FVD using R3D-18 features (fallback)...")
-
-        # Use R3D-18 as feature extractor (simpler than I3D, but still captures temporal info)
         model = video_models.r3d_18(pretrained=True).to(device)
         model.eval()
-
-        # Remove the final classification layer to get features
         model.fc = torch.nn.Identity()
 
-        def extract_features(videos: List[torch.Tensor]) -> np.ndarray:
+        def extract_r3d_features(videos: List[torch.Tensor]) -> np.ndarray:
             features = []
             with torch.no_grad():
                 for video in videos:
-                    # video: (T, C, H, W) -> (1, C, T, H, W)
                     v = video.unsqueeze(0).permute(0, 2, 1, 3, 4).to(device)
-
-                    # Resize to 112x112 (R3D expects this)
                     v = F.interpolate(v, size=(v.shape[2], 112, 112), mode='trilinear', align_corners=False)
-
-                    # Extract features
-                    feat = model(v)  # (1, 512)
+                    feat = model(v)
                     features.append(feat.cpu().numpy())
+            return np.concatenate(features, axis=0)
 
-            return np.concatenate(features, axis=0)  # (N, 512)
+        gen_feats = extract_r3d_features(gen_videos)
+        gt_feats = extract_r3d_features(gt_videos)
 
-        gen_feats = extract_features(gen_videos)
-        gt_feats = extract_features(gt_videos)
+        mu_gen, mu_gt = np.mean(gen_feats, axis=0), np.mean(gt_feats, axis=0)
+        sigma_gen = np.cov(gen_feats, rowvar=False) if gen_feats.shape[0] > 1 else np.zeros((gen_feats.shape[1], gen_feats.shape[1]))
+        sigma_gt = np.cov(gt_feats, rowvar=False) if gt_feats.shape[0] > 1 else np.zeros((gt_feats.shape[1], gt_feats.shape[1]))
 
-        # Compute Fréchet distance
-        mu_gen = np.mean(gen_feats, axis=0)
-        mu_gt = np.mean(gt_feats, axis=0)
-        sigma_gen = np.cov(gen_feats, rowvar=False)
-        sigma_gt = np.cov(gt_feats, rowvar=False)
-
-        # Handle single sample case
-        if gen_feats.shape[0] == 1:
-            sigma_gen = np.zeros_like(sigma_gen)
-        if gt_feats.shape[0] == 1:
-            sigma_gt = np.zeros_like(sigma_gt)
-
-        # Fréchet distance
-        diff = mu_gen - mu_gt
-        covmean, _ = linalg.sqrtm(sigma_gen @ sigma_gt, disp=False)
-        if np.iscomplexobj(covmean):
-            covmean = covmean.real
-        fvd_score = diff @ diff + np.trace(sigma_gen + sigma_gt - 2 * covmean)
-
-        return float(fvd_score)
+        return frechet_distance(mu_gen, sigma_gen, mu_gt, sigma_gt)
 
     except Exception as e:
         logger.warning(f"FVD computation failed: {e}")
-        logger.warning("Install pytorch-fvd for accurate FVD: pip install pytorch-fvd")
         return float('nan')
 
 
