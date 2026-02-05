@@ -282,11 +282,12 @@ def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
                         # Scale from [0, 1] to [-1, 1]
                         v = v * 2 - 1
 
-                        # Extract features (use logits as features)
-                        feat = model.extract_features(v)  # (1, 1024, T/8, 7, 7)
-                        # Global average pooling
-                        feat = feat.mean(dim=[2, 3, 4])  # (1, 1024)
-                        features.append(feat.cpu().numpy())
+                        # Extract logits (400-dim) - standard for FVD
+                        # This is what StyleGAN-V and most papers use
+                        logits = model(v)  # (1, T', 400) where T' = T/8
+                        # Average over temporal dimension
+                        logits = logits.mean(dim=1)  # (1, 400)
+                        features.append(logits.cpu().numpy())
 
                 return np.concatenate(features, axis=0)
 
