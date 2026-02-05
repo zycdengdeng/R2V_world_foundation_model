@@ -194,7 +194,7 @@ def compute_fid(gen_frames_dir: str, gt_frames_dir: str) -> float:
 
 # I3D weights URL (from StyleGAN-V / TATS)
 I3D_WEIGHTS_URL = "https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt?dl=1"
-I3D_WEIGHTS_PATH = Path.home() / ".cache" / "fvd" / "i3d_torchscript.pt"
+I3D_WEIGHTS_PATH = Path("/mnt/zihanw/R2V_world_foundation_model_v1/.cache/fvd/i3d_torchscript.pt")
 
 
 def download_i3d_weights() -> str:
