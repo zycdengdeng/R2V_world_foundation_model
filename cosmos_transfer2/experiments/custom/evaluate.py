@@ -648,27 +648,29 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda", fvd_frames: 
 
     # 4. LaTeX table snippet
     latex_path = output_dir / "table.tex"
+    newline = " \\\\\n"  # LaTeX row ending
     with open(latex_path, 'w') as f:
         f.write("% Auto-generated LaTeX table\n")
         f.write("\\begin{tabular}{lccccc}\n")
         f.write("\\toprule\n")
-        f.write("View & PSNR $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & FID $\\downarrow$ & FVD $\\downarrow$ \\\\\n")
+        f.write("View & PSNR $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & FID $\\downarrow$ & FVD $\\downarrow$" + newline)
         f.write("\\midrule\n")
         for view_name in all_views:
             s = per_view_summary[view_name]
-            f.write(f"{view_name.replace('_', '\\_')} & "
+            view_escaped = view_name.replace('_', '\\_')
+            f.write(f"{view_escaped} & "
                     f"{s['psnr_mean']:.2f} $\\pm$ {s['psnr_std']:.2f} & "
                     f"{s['ssim_mean']:.4f} $\\pm$ {s['ssim_std']:.4f} & "
                     f"{s['lpips_mean']:.4f} $\\pm$ {s['lpips_std']:.4f} & "
                     f"{s['fid']:.2f} & "
-                    f"{s['fvd']:.2f} \\\\\n")
+                    f"{s['fvd']:.2f}" + newline)
         f.write("\\midrule\n")
         f.write(f"Overall & "
                 f"{np.mean(all_psnr):.2f} $\\pm$ {np.std(all_psnr):.2f} & "
                 f"{np.mean(all_ssim):.4f} $\\pm$ {np.std(all_ssim):.4f} & "
                 f"{np.mean(all_lpips):.4f} $\\pm$ {np.std(all_lpips):.4f} & "
                 f"{fid_overall:.2f} & "
-                f"{fvd_overall:.2f} \\\\\n")
+                f"{fvd_overall:.2f}" + newline)
         f.write("\\bottomrule\n")
         f.write("\\end{tabular}\n")
     logger.info(f"LaTeX table: {latex_path}")
