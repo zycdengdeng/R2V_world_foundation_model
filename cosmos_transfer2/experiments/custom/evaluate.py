@@ -2,20 +2,24 @@
 """
 Evaluation script for multi-control inference results.
 
-Computes per-view and overall metrics:
-- PSNR (Peak Signal-to-Noise Ratio)
-- SSIM (Structural Similarity Index)
-- LPIPS (Learned Perceptual Image Patch Similarity)
-- FID (Fréchet Inception Distance) - distribution-level, requires frame extraction
-- FVD (Fréchet Video Distance) - distribution-level, requires torchmetrics
+Computes per-view and overall metrics for paper reporting:
+- PSNR (Peak Signal-to-Noise Ratio) - mean ± std
+- SSIM (Structural Similarity Index) - mean ± std
+- LPIPS (Learned Perceptual Image Patch Similarity) - mean ± std
+- FID (Fréchet Inception Distance) - single value (distribution-level)
 
 Usage:
-    python -m cosmos_transfer2.experiments.custom.evaluate \
+    python cosmos_transfer2/experiments/custom/evaluate.py \
         --input_dir /mnt/zihanw/Output_R2V_world_foundation_model_v1/inference \
-        --output_csv /mnt/zihanw/Output_R2V_world_foundation_model_v1/inference/metrics.csv
+        --device cuda
 
 Prerequisites:
-    pip install lpips scipy clean-fid torchmetrics
+    pip install lpips scipy clean-fid torchmetrics decord pillow
+
+Output format (for paper):
+    | View | PSNR ↑ | SSIM ↑ | LPIPS ↓ | FID ↓ |
+    |------|--------|--------|---------|-------|
+    | front_wide | 22.35 ± 1.2 | 0.782 ± 0.03 | 0.215 ± 0.02 | 45.2 |
 """
 
 import argparse
@@ -24,7 +28,7 @@ import json
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import torch
@@ -66,34 +70,17 @@ def compute_psnr(gen: torch.Tensor, gt: torch.Tensor) -> float:
 def compute_ssim(gen: torch.Tensor, gt: torch.Tensor) -> float:
     """Compute SSIM between two (T, 3, H, W) tensors in [0, 1].
 
-    Uses torchmetrics if available, otherwise falls back to simple implementation.
+    Requires torchmetrics for accurate computation.
     """
     try:
         from torchmetrics.image import StructuralSimilarityIndexMeasure
         ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0).to(gen.device)
         return ssim_metric(gen, gt).item()
     except ImportError:
-        pass
-
-    # Fallback: simplified SSIM (per-frame, average)
-    C1 = 0.01 ** 2
-    C2 = 0.03 ** 2
-    ssim_vals = []
-    for i in range(gen.shape[0]):
-        g = gen[i:i+1]  # (1, 3, H, W)
-        r = gt[i:i+1]
-        mu_g = F.avg_pool2d(g, 11, stride=1, padding=5)
-        mu_r = F.avg_pool2d(r, 11, stride=1, padding=5)
-        mu_g_sq = mu_g ** 2
-        mu_r_sq = mu_r ** 2
-        mu_gr = mu_g * mu_r
-        sigma_g_sq = F.avg_pool2d(g ** 2, 11, stride=1, padding=5) - mu_g_sq
-        sigma_r_sq = F.avg_pool2d(r ** 2, 11, stride=1, padding=5) - mu_r_sq
-        sigma_gr = F.avg_pool2d(g * r, 11, stride=1, padding=5) - mu_gr
-        ssim_map = ((2 * mu_gr + C1) * (2 * sigma_gr + C2)) / \
-                   ((mu_g_sq + mu_r_sq + C1) * (sigma_g_sq + sigma_r_sq + C2))
-        ssim_vals.append(ssim_map.mean().item())
-    return float(np.mean(ssim_vals))
+        raise ImportError(
+            "torchmetrics is required for accurate SSIM computation. "
+            "Install with: pip install torchmetrics"
+        )
 
 
 def compute_lpips(gen: torch.Tensor, gt: torch.Tensor, lpips_model) -> float:
@@ -121,10 +108,11 @@ def compute_lpips(gen: torch.Tensor, gt: torch.Tensor, lpips_model) -> float:
 # Distribution metrics: FID
 # ============================================================================
 
-def extract_and_save_frames(video_dir: str, output_frames_dir: str):
-    """Extract frames from all videos in inference output for FID computation.
+def extract_and_save_frames(video_dir: str, output_frames_dir: str,
+                            pairs_by_view: Dict[str, List[Tuple[str, str, str]]]) -> Tuple[str, str, int]:
+    """Extract frames from all videos for FID computation.
 
-    Creates two directories:
+    Creates:
         {output_frames_dir}/generated/  - all generated frames
         {output_frames_dir}/gt/         - all ground truth frames
     """
@@ -135,28 +123,13 @@ def extract_and_save_frames(video_dir: str, output_frames_dir: str):
 
     from PIL import Image
 
-    video_dir = Path(video_dir)
     frame_count = 0
-
-    for sample_dir in sorted(video_dir.iterdir()):
-        if not sample_dir.is_dir():
-            continue
-
-        sample_id = sample_dir.name
-
-        for video_file in sorted(sample_dir.glob("*_generated.mp4")):
-            view_name = video_file.stem.replace("_generated", "")
-            gt_file = sample_dir / f"{view_name}_gt.mp4"
-
-            if not gt_file.exists():
-                logger.warning(f"GT not found for {video_file}, skipping")
-                continue
-
-            gen_frames = read_video_frames(str(video_file))
-            gt_frames = read_video_frames(str(gt_file))
-
-            n_frames = min(len(gen_frames), len(gt_frames))
-            for t in range(n_frames):
+    for view_name, pairs in pairs_by_view.items():
+        for sample_id, gen_path, gt_path in pairs:
+            gen_frames = read_video_frames(gen_path)
+            gt_frames = read_video_frames(gt_path)
+            n = min(len(gen_frames), len(gt_frames))
+            for t in range(n):
                 fname = f"{sample_id}_{view_name}_{t:04d}.png"
                 Image.fromarray(gen_frames[t]).save(str(gen_dir / fname))
                 Image.fromarray(gt_frames[t]).save(str(gt_dir / fname))
@@ -164,6 +137,27 @@ def extract_and_save_frames(video_dir: str, output_frames_dir: str):
 
     logger.info(f"Extracted {frame_count} frame pairs to {output_frames_dir}")
     return str(gen_dir), str(gt_dir), frame_count
+
+
+def extract_view_frames(pairs: List[Tuple[str, str, str]], output_dir: str) -> Tuple[str, str]:
+    """Extract frames for a single view."""
+    gen_dir = Path(output_dir) / "gen"
+    gt_dir = Path(output_dir) / "gt"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    gt_dir.mkdir(parents=True, exist_ok=True)
+
+    from PIL import Image
+
+    for sample_id, gen_path, gt_path in pairs:
+        gen_frames = read_video_frames(gen_path)
+        gt_frames = read_video_frames(gt_path)
+        n = min(len(gen_frames), len(gt_frames))
+        for t in range(n):
+            fname = f"{sample_id}_{t:04d}.png"
+            Image.fromarray(gen_frames[t]).save(str(gen_dir / fname))
+            Image.fromarray(gt_frames[t]).save(str(gt_dir / fname))
+
+    return str(gen_dir), str(gt_dir)
 
 
 def compute_fid(gen_frames_dir: str, gt_frames_dir: str) -> float:
@@ -176,7 +170,6 @@ def compute_fid(gen_frames_dir: str, gt_frames_dir: str) -> float:
         pass
 
     try:
-        # Fallback: pytorch-fid
         from pytorch_fid import fid_score
         score = fid_score.calculate_fid_given_paths(
             [gen_frames_dir, gt_frames_dir],
@@ -186,30 +179,8 @@ def compute_fid(gen_frames_dir: str, gt_frames_dir: str) -> float:
     except ImportError:
         pass
 
-    logger.error("Neither clean-fid nor pytorch-fid is installed. "
-                 "Install with: pip install clean-fid")
+    logger.error("Neither clean-fid nor pytorch-fid installed. Install: pip install clean-fid")
     return float('nan')
-
-
-# ============================================================================
-# Distribution metrics: FVD
-# ============================================================================
-
-def compute_fvd_for_view(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor]) -> float:
-    """Compute FVD between lists of video tensors.
-
-    Each video is (T, 3, H, W) in [0, 1].
-    Requires torchmetrics with video support.
-    """
-    try:
-        from torchmetrics.image.fid import FrechetInceptionDistance
-        # FVD is not in standard torchmetrics, use a simple approach:
-        # Compute per-frame FID as a proxy, or skip
-        logger.warning("FVD requires specialized I3D model. Using per-frame FID as proxy.")
-        return float('nan')
-    except ImportError:
-        logger.warning("torchmetrics not available for FVD computation")
-        return float('nan')
 
 
 # ============================================================================
@@ -225,7 +196,7 @@ def find_video_pairs(input_dir: str) -> Dict[str, List[Tuple[str, str, str]]]:
     pairs_by_view = defaultdict(list)
 
     for sample_dir in sorted(input_path.iterdir()):
-        if not sample_dir.is_dir():
+        if not sample_dir.is_dir() or sample_dir.name.startswith('_'):
             continue
 
         sample_id = sample_dir.name
@@ -242,10 +213,20 @@ def find_video_pairs(input_dir: str) -> Dict[str, List[Tuple[str, str, str]]]:
     return dict(pairs_by_view)
 
 
+def format_mean_std(values: List[float], precision: int = 4) -> str:
+    """Format as 'mean ± std' for paper."""
+    mean = np.mean(values)
+    std = np.std(values)
+    if precision == 2:
+        return f"{mean:.2f} ± {std:.2f}"
+    return f"{mean:.{precision}f} ± {std:.{precision}f}"
+
+
 def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
     """Run full evaluation."""
 
     logger.info(f"Evaluating: {input_dir}")
+    logger.info(f"Device: {device}")
 
     # Find all video pairs
     pairs_by_view = find_video_pairs(input_dir)
@@ -254,9 +235,18 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
         return
 
     all_views = sorted(pairs_by_view.keys())
-    logger.info(f"Found {len(all_views)} views: {all_views}")
+    total_samples = sum(len(pairs) for pairs in pairs_by_view.values())
+    logger.info(f"Found {len(all_views)} views, {total_samples} total video pairs")
     for view in all_views:
         logger.info(f"  {view}: {len(pairs_by_view[view])} samples")
+
+    # Check dependencies
+    try:
+        from torchmetrics.image import StructuralSimilarityIndexMeasure
+        logger.info("torchmetrics available for SSIM")
+    except ImportError:
+        logger.error("torchmetrics required! Install: pip install torchmetrics")
+        return
 
     # Initialize LPIPS model
     lpips_model = None
@@ -266,10 +256,13 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
         lpips_model.eval()
         logger.info("LPIPS model loaded (AlexNet)")
     except ImportError:
-        logger.warning("lpips not installed, LPIPS will be skipped. Install: pip install lpips")
+        logger.error("lpips required! Install: pip install lpips")
+        return
 
-    # ---- Per-view paired metrics: PSNR, SSIM, LPIPS ----
-    results = []  # List of dicts for CSV output
+    # ========================================================================
+    # Per-sample paired metrics: PSNR, SSIM, LPIPS
+    # ========================================================================
+    results = []  # Per-sample results
     all_psnr = []
     all_ssim = []
     all_lpips = []
@@ -280,16 +273,23 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
         view_ssim = []
         view_lpips = []
 
-        logger.info(f"\n--- Evaluating view: {view_name} ({len(pairs)} samples) ---")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Evaluating view: {view_name} ({len(pairs)} samples)")
+        logger.info(f"{'='*60}")
 
         for sample_id, gen_path, gt_path in pairs:
-            gen_frames = frames_to_tensor(read_video_frames(gen_path)).to(device)
-            gt_frames = frames_to_tensor(read_video_frames(gt_path)).to(device)
+            gen_frames_np = read_video_frames(gen_path)
+            gt_frames_np = read_video_frames(gt_path)
 
-            # Ensure same number of frames
-            n = min(gen_frames.shape[0], gt_frames.shape[0])
-            gen_frames = gen_frames[:n]
-            gt_frames = gt_frames[:n]
+            # Check frame count consistency
+            n_gen, n_gt = len(gen_frames_np), len(gt_frames_np)
+            if n_gen != n_gt:
+                logger.warning(f"Frame count mismatch for {sample_id}/{view_name}: "
+                               f"gen={n_gen}, gt={n_gt}. Using min={min(n_gen, n_gt)}")
+
+            n = min(n_gen, n_gt)
+            gen_frames = frames_to_tensor(gen_frames_np[:n]).to(device)
+            gt_frames = frames_to_tensor(gt_frames_np[:n]).to(device)
 
             # PSNR
             psnr_val = compute_psnr(gen_frames, gt_frames)
@@ -300,9 +300,7 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
             view_ssim.append(ssim_val)
 
             # LPIPS
-            lpips_val = float('nan')
-            if lpips_model is not None:
-                lpips_val = compute_lpips(gen_frames, gt_frames, lpips_model)
+            lpips_val = compute_lpips(gen_frames, gt_frames, lpips_model)
             view_lpips.append(lpips_val)
 
             logger.info(f"  {sample_id}: PSNR={psnr_val:.2f}, SSIM={ssim_val:.4f}, LPIPS={lpips_val:.4f}")
@@ -319,137 +317,157 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
             del gen_frames, gt_frames
             torch.cuda.empty_cache()
 
-        # Per-view averages
-        avg_psnr = np.mean(view_psnr)
-        avg_ssim = np.mean(view_ssim)
-        avg_lpips = np.nanmean(view_lpips)
-        logger.info(f"  [{view_name} AVG] PSNR={avg_psnr:.2f}, SSIM={avg_ssim:.4f}, LPIPS={avg_lpips:.4f}")
+        # Per-view summary
+        logger.info(f"\n  [{view_name}] PSNR: {format_mean_std(view_psnr, 2)}")
+        logger.info(f"  [{view_name}] SSIM: {format_mean_std(view_ssim, 4)}")
+        logger.info(f"  [{view_name}] LPIPS: {format_mean_std(view_lpips, 4)}")
 
         all_psnr.extend(view_psnr)
         all_ssim.extend(view_ssim)
         all_lpips.extend(view_lpips)
 
-    # Overall averages
-    logger.info(f"\n{'='*60}")
-    logger.info(f"OVERALL (all views, all samples):")
-    logger.info(f"  PSNR:  {np.mean(all_psnr):.2f}")
-    logger.info(f"  SSIM:  {np.mean(all_ssim):.4f}")
-    logger.info(f"  LPIPS: {np.nanmean(all_lpips):.4f}")
-
-    # ---- FID (distribution-level, needs frame extraction) ----
+    # ========================================================================
+    # FID (distribution-level)
+    # ========================================================================
     logger.info(f"\n{'='*60}")
     logger.info("Computing FID (extracting frames)...")
-    frames_dir = str(Path(input_dir) / "_eval_frames")
-    gen_frames_dir, gt_frames_dir, n_frames = extract_and_save_frames(input_dir, frames_dir)
+    logger.info(f"{'='*60}")
 
-    if n_frames > 0:
-        fid_score = compute_fid(gen_frames_dir, gt_frames_dir)
-        logger.info(f"  FID (all views): {fid_score:.2f}")
-    else:
-        fid_score = float('nan')
-        logger.warning("No frames extracted, FID skipped")
+    frames_dir = str(Path(input_dir) / "_eval_frames")
+
+    # Overall FID
+    gen_frames_dir, gt_frames_dir, n_frames = extract_and_save_frames(
+        input_dir, frames_dir, pairs_by_view
+    )
+    fid_overall = compute_fid(gen_frames_dir, gt_frames_dir) if n_frames > 0 else float('nan')
+    logger.info(f"Overall FID: {fid_overall:.2f}")
 
     # Per-view FID
     fid_per_view = {}
     for view_name in all_views:
-        view_gen_dir = str(Path(frames_dir) / f"generated_{view_name}")
-        view_gt_dir = str(Path(frames_dir) / f"gt_{view_name}")
-        Path(view_gen_dir).mkdir(parents=True, exist_ok=True)
-        Path(view_gt_dir).mkdir(parents=True, exist_ok=True)
-
-        from PIL import Image
-        pairs = pairs_by_view[view_name]
-        for sample_id, gen_path, gt_path in pairs:
-            gen_frames = read_video_frames(gen_path)
-            gt_frames = read_video_frames(gt_path)
-            n = min(len(gen_frames), len(gt_frames))
-            for t in range(n):
-                fname = f"{sample_id}_{t:04d}.png"
-                Image.fromarray(gen_frames[t]).save(os.path.join(view_gen_dir, fname))
-                Image.fromarray(gt_frames[t]).save(os.path.join(view_gt_dir, fname))
-
-        view_fid = compute_fid(view_gen_dir, view_gt_dir)
+        view_frames_dir = str(Path(frames_dir) / view_name)
+        gen_dir, gt_dir = extract_view_frames(pairs_by_view[view_name], view_frames_dir)
+        view_fid = compute_fid(gen_dir, gt_dir)
         fid_per_view[view_name] = view_fid
         logger.info(f"  FID [{view_name}]: {view_fid:.2f}")
 
-    # ---- Summary ----
-    logger.info(f"\n{'='*60}")
-    logger.info("FINAL SUMMARY")
-    logger.info(f"{'='*60}")
-    logger.info(f"{'View':<30} {'PSNR':>8} {'SSIM':>8} {'LPIPS':>8} {'FID':>8}")
-    logger.info(f"{'-'*62}")
+    # ========================================================================
+    # Final Summary (Paper Format)
+    # ========================================================================
+    logger.info(f"\n{'='*70}")
+    logger.info("FINAL RESULTS (Paper Format)")
+    logger.info(f"{'='*70}")
+    logger.info(f"{'View':<25} {'PSNR ↑':>15} {'SSIM ↑':>15} {'LPIPS ↓':>15} {'FID ↓':>10}")
+    logger.info(f"{'-'*80}")
+
+    per_view_summary = {}
     for view_name in all_views:
         view_results = [r for r in results if r['view'] == view_name]
-        vp = np.mean([r['psnr'] for r in view_results])
-        vs = np.mean([r['ssim'] for r in view_results])
-        vl = np.nanmean([r['lpips'] for r in view_results])
+        vp = [r['psnr'] for r in view_results]
+        vs = [r['ssim'] for r in view_results]
+        vl = [r['lpips'] for r in view_results]
         vf = fid_per_view.get(view_name, float('nan'))
-        logger.info(f"{view_name:<30} {vp:>8.2f} {vs:>8.4f} {vl:>8.4f} {vf:>8.2f}")
 
-    logger.info(f"{'-'*62}")
-    logger.info(f"{'OVERALL':<30} {np.mean(all_psnr):>8.2f} {np.mean(all_ssim):>8.4f} "
-                f"{np.nanmean(all_lpips):>8.4f} {fid_score:>8.2f}")
+        per_view_summary[view_name] = {
+            'psnr_mean': float(np.mean(vp)),
+            'psnr_std': float(np.std(vp)),
+            'ssim_mean': float(np.mean(vs)),
+            'ssim_std': float(np.std(vs)),
+            'lpips_mean': float(np.mean(vl)),
+            'lpips_std': float(np.std(vl)),
+            'fid': float(vf),
+            'n_samples': len(view_results),
+        }
 
-    # ---- Save CSV ----
-    if output_csv:
-        csv_path = Path(output_csv)
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"{view_name:<25} {format_mean_std(vp, 2):>15} {format_mean_std(vs, 4):>15} "
+                    f"{format_mean_std(vl, 4):>15} {vf:>10.2f}")
 
-        # Per-sample results
-        with open(csv_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=['sample_id', 'view', 'psnr', 'ssim', 'lpips'])
-            writer.writeheader()
-            writer.writerows(results)
-        logger.info(f"Per-sample results saved to: {csv_path}")
+    logger.info(f"{'-'*80}")
+    logger.info(f"{'OVERALL':<25} {format_mean_std(all_psnr, 2):>15} {format_mean_std(all_ssim, 4):>15} "
+                f"{format_mean_std(all_lpips, 4):>15} {fid_overall:>10.2f}")
+    logger.info(f"{'='*70}")
 
-        # Summary results
-        summary_path = csv_path.parent / csv_path.stem.replace('metrics', 'summary')
-        summary_path = summary_path.with_suffix('.csv')
-        with open(summary_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=['view', 'psnr', 'ssim', 'lpips', 'fid'])
-            writer.writeheader()
-            for view_name in all_views:
-                view_results_list = [r for r in results if r['view'] == view_name]
-                writer.writerow({
-                    'view': view_name,
-                    'psnr': f"{np.mean([r['psnr'] for r in view_results_list]):.4f}",
-                    'ssim': f"{np.mean([r['ssim'] for r in view_results_list]):.4f}",
-                    'lpips': f"{np.nanmean([r['lpips'] for r in view_results_list]):.4f}",
-                    'fid': f"{fid_per_view.get(view_name, float('nan')):.4f}",
-                })
-            writer.writerow({
-                'view': 'OVERALL',
-                'psnr': f"{np.mean(all_psnr):.4f}",
-                'ssim': f"{np.mean(all_ssim):.4f}",
-                'lpips': f"{np.nanmean(all_lpips):.4f}",
-                'fid': f"{fid_score:.4f}",
-            })
-        logger.info(f"Summary saved to: {summary_path}")
+    # ========================================================================
+    # Save results
+    # ========================================================================
+    output_dir = Path(output_csv).parent if output_csv else Path(input_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save full results as JSON too
-    json_path = Path(output_csv).with_suffix('.json') if output_csv else Path(input_dir) / "metrics.json"
-    summary_dict = {
+    # 1. Per-sample CSV
+    csv_path = Path(output_csv) if output_csv else output_dir / "metrics.csv"
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['sample_id', 'view', 'psnr', 'ssim', 'lpips'])
+        writer.writeheader()
+        writer.writerows(results)
+    logger.info(f"Per-sample results: {csv_path}")
+
+    # 2. Summary CSV (for paper table)
+    summary_csv = output_dir / "summary.csv"
+    with open(summary_csv, 'w', newline='') as f:
+        fieldnames = ['view', 'psnr_mean', 'psnr_std', 'ssim_mean', 'ssim_std',
+                      'lpips_mean', 'lpips_std', 'fid', 'n_samples']
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for view_name in all_views:
+            row = {'view': view_name, **per_view_summary[view_name]}
+            writer.writerow(row)
+        # Overall row
+        writer.writerow({
+            'view': 'OVERALL',
+            'psnr_mean': float(np.mean(all_psnr)),
+            'psnr_std': float(np.std(all_psnr)),
+            'ssim_mean': float(np.mean(all_ssim)),
+            'ssim_std': float(np.std(all_ssim)),
+            'lpips_mean': float(np.mean(all_lpips)),
+            'lpips_std': float(np.std(all_lpips)),
+            'fid': float(fid_overall),
+            'n_samples': len(results),
+        })
+    logger.info(f"Summary (for paper): {summary_csv}")
+
+    # 3. Full JSON
+    json_path = output_dir / "metrics.json"
+    full_results = {
         'overall': {
-            'psnr': float(np.mean(all_psnr)),
-            'ssim': float(np.mean(all_ssim)),
-            'lpips': float(np.nanmean(all_lpips)),
-            'fid': float(fid_score) if not np.isnan(fid_score) else None,
+            'psnr': {'mean': float(np.mean(all_psnr)), 'std': float(np.std(all_psnr))},
+            'ssim': {'mean': float(np.mean(all_ssim)), 'std': float(np.std(all_ssim))},
+            'lpips': {'mean': float(np.mean(all_lpips)), 'std': float(np.std(all_lpips))},
+            'fid': float(fid_overall),
+            'n_samples': len(results),
         },
-        'per_view': {},
+        'per_view': per_view_summary,
         'per_sample': results,
     }
-    for view_name in all_views:
-        view_results_list = [r for r in results if r['view'] == view_name]
-        summary_dict['per_view'][view_name] = {
-            'psnr': float(np.mean([r['psnr'] for r in view_results_list])),
-            'ssim': float(np.mean([r['ssim'] for r in view_results_list])),
-            'lpips': float(np.nanmean([r['lpips'] for r in view_results_list])),
-            'fid': float(fid_per_view.get(view_name, float('nan'))),
-            'n_samples': len(view_results_list),
-        }
     with open(json_path, 'w') as f:
-        json.dump(summary_dict, f, indent=2)
-    logger.info(f"Full results saved to: {json_path}")
+        json.dump(full_results, f, indent=2)
+    logger.info(f"Full results (JSON): {json_path}")
+
+    # 4. LaTeX table snippet
+    latex_path = output_dir / "table.tex"
+    with open(latex_path, 'w') as f:
+        f.write("% Auto-generated LaTeX table\n")
+        f.write("\\begin{tabular}{lcccc}\n")
+        f.write("\\toprule\n")
+        f.write("View & PSNR $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & FID $\\downarrow$ \\\\\n")
+        f.write("\\midrule\n")
+        for view_name in all_views:
+            s = per_view_summary[view_name]
+            f.write(f"{view_name.replace('_', '\\_')} & "
+                    f"{s['psnr_mean']:.2f} $\\pm$ {s['psnr_std']:.2f} & "
+                    f"{s['ssim_mean']:.4f} $\\pm$ {s['ssim_std']:.4f} & "
+                    f"{s['lpips_mean']:.4f} $\\pm$ {s['lpips_std']:.4f} & "
+                    f"{s['fid']:.2f} \\\\\n")
+        f.write("\\midrule\n")
+        f.write(f"Overall & "
+                f"{np.mean(all_psnr):.2f} $\\pm$ {np.std(all_psnr):.2f} & "
+                f"{np.mean(all_ssim):.4f} $\\pm$ {np.std(all_ssim):.4f} & "
+                f"{np.mean(all_lpips):.4f} $\\pm$ {np.std(all_lpips):.4f} & "
+                f"{fid_overall:.2f} \\\\\n")
+        f.write("\\bottomrule\n")
+        f.write("\\end{tabular}\n")
+    logger.info(f"LaTeX table: {latex_path}")
+
+    logger.info("\nEvaluation complete!")
 
 
 def main():
