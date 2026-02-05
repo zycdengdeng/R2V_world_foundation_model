@@ -209,27 +209,29 @@ def compute_fid(gen_frames_dir: str, gt_frames_dir: str) -> float:
 # Distribution metrics: FVD (Fréchet Video Distance)
 # ============================================================================
 
-# I3D weights URL (from StyleGAN-V / TATS)
-I3D_WEIGHTS_URL = "https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt?dl=1"
-I3D_WEIGHTS_PATH = Path("/mnt/zihanw/R2V_world_foundation_model_v1/.cache/fvd/i3d_torchscript.pt")
+# I3D model paths (pytorch-i3d from https://github.com/piergiaj/pytorch-i3d)
+I3D_MODEL_PATH = Path("/mnt/zihanw/R2V_world_foundation_model_v1/.cache/fvd/pytorch_i3d.py")
+I3D_WEIGHTS_PATH = Path("/mnt/zihanw/R2V_world_foundation_model_v1/.cache/fvd/rgb_imagenet.pt")
 
 
-def download_i3d_weights() -> str:
-    """Download I3D weights if not cached."""
-    if I3D_WEIGHTS_PATH.exists():
-        return str(I3D_WEIGHTS_PATH)
+def load_i3d_model(device: str = "cuda"):
+    """Load I3D model from pytorch-i3d."""
+    import sys
 
-    logger.info(f"Downloading I3D weights to {I3D_WEIGHTS_PATH}...")
-    I3D_WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Add the directory containing pytorch_i3d.py to path
+    i3d_dir = str(I3D_MODEL_PATH.parent)
+    if i3d_dir not in sys.path:
+        sys.path.insert(0, i3d_dir)
 
-    import urllib.request
-    try:
-        urllib.request.urlretrieve(I3D_WEIGHTS_URL, str(I3D_WEIGHTS_PATH))
-        logger.info("I3D weights downloaded successfully")
-        return str(I3D_WEIGHTS_PATH)
-    except Exception as e:
-        logger.warning(f"Failed to download I3D weights: {e}")
-        return None
+    from pytorch_i3d import InceptionI3d
+
+    # Load model
+    model = InceptionI3d(400, in_channels=3)
+    model.load_state_dict(torch.load(str(I3D_WEIGHTS_PATH), map_location=device))
+    model = model.to(device)
+    model.eval()
+
+    return model
 
 
 def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
@@ -257,9 +259,44 @@ def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
             covmean = covmean.real
         return float(diff @ diff + np.trace(sigma1 + sigma2 - 2 * covmean))
 
-    # Use R3D-18 for FVD (reliable and gives consistent results)
-    # Note: I3D torchscript from StyleGAN-V has input format issues, using R3D-18 instead
+    # Try I3D first (standard for FVD), fallback to R3D-18
     try:
+        if I3D_MODEL_PATH.exists() and I3D_WEIGHTS_PATH.exists():
+            logger.info("Computing FVD using I3D features (standard)...")
+            model = load_i3d_model(device)
+
+            def extract_i3d_features(videos: List[torch.Tensor]) -> np.ndarray:
+                features = []
+                with torch.no_grad():
+                    for video in videos:
+                        # video: (T, C, H, W) in [0, 1]
+                        v = video.to(device)
+
+                        # Resize to 224x224
+                        v = F.interpolate(v, size=(224, 224), mode='bilinear', align_corners=False)
+
+                        # Convert to I3D input format: (N, C, T, H, W)
+                        # pytorch-i3d expects (batch, channels, frames, height, width)
+                        v = v.permute(1, 0, 2, 3).unsqueeze(0)  # (1, C, T, 224, 224)
+
+                        # Scale from [0, 1] to [-1, 1]
+                        v = v * 2 - 1
+
+                        # Extract features (use logits as features)
+                        feat = model.extract_features(v)  # (1, 1024, T/8, 7, 7)
+                        # Global average pooling
+                        feat = feat.mean(dim=[2, 3, 4])  # (1, 1024)
+                        features.append(feat.cpu().numpy())
+
+                return np.concatenate(features, axis=0)
+
+            gen_feats = extract_i3d_features(gen_videos)
+            gt_feats = extract_i3d_features(gt_videos)
+        else:
+            raise FileNotFoundError("I3D model files not found, using R3D-18 fallback")
+
+    except Exception as e:
+        logger.warning(f"I3D failed: {e}, using R3D-18 fallback...")
         import torchvision.models.video as video_models
 
         logger.info("Computing FVD using R3D-18 features...")
@@ -267,27 +304,26 @@ def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
         model.eval()
         model.fc = torch.nn.Identity()
 
-        def extract_features(videos: List[torch.Tensor]) -> np.ndarray:
+        def extract_r3d_features(videos: List[torch.Tensor]) -> np.ndarray:
             features = []
             with torch.no_grad():
                 for video in videos:
-                    # video: (T, C, H, W) in [0, 1]
-                    v = video.unsqueeze(0).permute(0, 2, 1, 3, 4).to(device)  # (1, C, T, H, W)
-                    # Resize to 112x112 (R3D expects this)
+                    v = video.unsqueeze(0).permute(0, 2, 1, 3, 4).to(device)
                     v = F.interpolate(v, size=(v.shape[2], 112, 112), mode='trilinear', align_corners=False)
-                    feat = model(v)  # (1, 512)
+                    feat = model(v)
                     features.append(feat.cpu().numpy())
             return np.concatenate(features, axis=0)
 
-        gen_feats = extract_features(gen_videos)
-        gt_feats = extract_features(gt_videos)
+        gen_feats = extract_r3d_features(gen_videos)
+        gt_feats = extract_r3d_features(gt_videos)
 
+    # Compute Fréchet distance
+    try:
         mu_gen, mu_gt = np.mean(gen_feats, axis=0), np.mean(gt_feats, axis=0)
         sigma_gen = np.cov(gen_feats, rowvar=False) if gen_feats.shape[0] > 1 else np.zeros((gen_feats.shape[1], gen_feats.shape[1]))
         sigma_gt = np.cov(gt_feats, rowvar=False) if gt_feats.shape[0] > 1 else np.zeros((gt_feats.shape[1], gt_feats.shape[1]))
 
         return frechet_distance(mu_gen, sigma_gen, mu_gt, sigma_gt)
-
     except Exception as e:
         logger.warning(f"FVD computation failed: {e}")
         return float('nan')
