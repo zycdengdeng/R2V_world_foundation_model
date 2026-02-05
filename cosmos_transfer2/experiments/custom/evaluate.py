@@ -251,16 +251,16 @@ def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
                 features = []
                 with torch.no_grad():
                     for video in videos:
-                        # video: (T, C, H, W) -> (1, T, H, W, C)
-                        v = video.permute(0, 2, 3, 1).unsqueeze(0).to(device)
+                        # video: (T, C, H, W) in [0, 1]
+                        T, C, H, W = video.shape
+                        v = video.to(device)
 
-                        # I3D expects (N, T, H, W, C) in [0, 1], resize to 224x224
-                        v = F.interpolate(
-                            v.permute(0, 1, 4, 2, 3),  # (N, T, C, H, W)
-                            size=(224, 224),
-                            mode='bilinear',
-                            align_corners=False
-                        ).permute(0, 1, 3, 4, 2)  # back to (N, T, H, W, C)
+                        # Resize each frame to 224x224 (bilinear for 4D)
+                        v = F.interpolate(v, size=(224, 224), mode='bilinear', align_corners=False)
+                        # v: (T, C, 224, 224)
+
+                        # Convert to I3D input format: (N, T, H, W, C)
+                        v = v.permute(0, 2, 3, 1).unsqueeze(0)  # (1, T, 224, 224, C)
 
                         # Scale to [-1, 1] as expected by I3D
                         v = v * 2 - 1
