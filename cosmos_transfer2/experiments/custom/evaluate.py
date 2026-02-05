@@ -6,7 +6,8 @@ Computes per-view and overall metrics for paper reporting:
 - PSNR (Peak Signal-to-Noise Ratio) - mean ± std
 - SSIM (Structural Similarity Index) - mean ± std
 - LPIPS (Learned Perceptual Image Patch Similarity) - mean ± std
-- FID (Fréchet Inception Distance) - single value (distribution-level)
+- FID (Fréchet Inception Distance) - single value (distribution-level, image)
+- FVD (Fréchet Video Distance) - single value (distribution-level, video)
 
 Usage:
     python cosmos_transfer2/experiments/custom/evaluate.py \
@@ -16,10 +17,14 @@ Usage:
 Prerequisites:
     pip install lpips scipy clean-fid torchmetrics decord pillow
 
+    # For FVD (optional, will skip if not available):
+    pip install pytorch-fvd
+    # Or manually download I3D weights
+
 Output format (for paper):
-    | View | PSNR ↑ | SSIM ↑ | LPIPS ↓ | FID ↓ |
-    |------|--------|--------|---------|-------|
-    | front_wide | 22.35 ± 1.2 | 0.782 ± 0.03 | 0.215 ± 0.02 | 45.2 |
+    | View | PSNR ↑ | SSIM ↑ | LPIPS ↓ | FID ↓ | FVD ↓ |
+    |------|--------|--------|---------|-------|-------|
+    | front_wide | 22.35 ± 1.2 | 0.782 ± 0.03 | 0.215 ± 0.02 | 45.2 | 123.4 |
 """
 
 import argparse
@@ -181,6 +186,108 @@ def compute_fid(gen_frames_dir: str, gt_frames_dir: str) -> float:
 
     logger.error("Neither clean-fid nor pytorch-fid installed. Install: pip install clean-fid")
     return float('nan')
+
+
+# ============================================================================
+# Distribution metrics: FVD (Fréchet Video Distance)
+# ============================================================================
+
+def compute_fvd(gen_videos: List[torch.Tensor], gt_videos: List[torch.Tensor],
+                device: str = "cuda") -> float:
+    """Compute FVD between two lists of video tensors.
+
+    Each video should be (T, C, H, W) in [0, 1].
+    FVD uses I3D features to measure video quality distribution.
+
+    Args:
+        gen_videos: List of generated video tensors
+        gt_videos: List of ground truth video tensors
+        device: Computation device
+
+    Returns:
+        FVD score (lower is better)
+    """
+    # Try pytorch-fvd package first
+    try:
+        from pytorch_fvd import fvd as pytorch_fvd
+        from pytorch_fvd.fvd import load_i3d_pretrained
+
+        logger.info("Computing FVD using pytorch-fvd...")
+        i3d = load_i3d_pretrained(device=device)
+
+        # Stack videos: (N, T, C, H, W)
+        gen_stack = torch.stack(gen_videos).to(device)
+        gt_stack = torch.stack(gt_videos).to(device)
+
+        # pytorch-fvd expects (N, C, T, H, W)
+        gen_stack = gen_stack.permute(0, 2, 1, 3, 4)
+        gt_stack = gt_stack.permute(0, 2, 1, 3, 4)
+
+        # Compute FVD
+        fvd_score = pytorch_fvd.compute_fvd(gen_stack, gt_stack, i3d, device)
+        return float(fvd_score)
+
+    except ImportError:
+        pass
+
+    # Fallback: manual implementation using scipy
+    try:
+        from scipy import linalg
+        import torchvision.models.video as video_models
+
+        logger.info("Computing FVD using R3D-18 features (fallback)...")
+
+        # Use R3D-18 as feature extractor (simpler than I3D, but still captures temporal info)
+        model = video_models.r3d_18(pretrained=True).to(device)
+        model.eval()
+
+        # Remove the final classification layer to get features
+        model.fc = torch.nn.Identity()
+
+        def extract_features(videos: List[torch.Tensor]) -> np.ndarray:
+            features = []
+            with torch.no_grad():
+                for video in videos:
+                    # video: (T, C, H, W) -> (1, C, T, H, W)
+                    v = video.unsqueeze(0).permute(0, 2, 1, 3, 4).to(device)
+
+                    # Resize to 112x112 (R3D expects this)
+                    v = F.interpolate(v, size=(v.shape[2], 112, 112), mode='trilinear', align_corners=False)
+
+                    # Extract features
+                    feat = model(v)  # (1, 512)
+                    features.append(feat.cpu().numpy())
+
+            return np.concatenate(features, axis=0)  # (N, 512)
+
+        gen_feats = extract_features(gen_videos)
+        gt_feats = extract_features(gt_videos)
+
+        # Compute Fréchet distance
+        mu_gen = np.mean(gen_feats, axis=0)
+        mu_gt = np.mean(gt_feats, axis=0)
+        sigma_gen = np.cov(gen_feats, rowvar=False)
+        sigma_gt = np.cov(gt_feats, rowvar=False)
+
+        # Handle single sample case
+        if gen_feats.shape[0] == 1:
+            sigma_gen = np.zeros_like(sigma_gen)
+        if gt_feats.shape[0] == 1:
+            sigma_gt = np.zeros_like(sigma_gt)
+
+        # Fréchet distance
+        diff = mu_gen - mu_gt
+        covmean, _ = linalg.sqrtm(sigma_gen @ sigma_gt, disp=False)
+        if np.iscomplexobj(covmean):
+            covmean = covmean.real
+        fvd_score = diff @ diff + np.trace(sigma_gen + sigma_gt - 2 * covmean)
+
+        return float(fvd_score)
+
+    except Exception as e:
+        logger.warning(f"FVD computation failed: {e}")
+        logger.warning("Install pytorch-fvd for accurate FVD: pip install pytorch-fvd")
+        return float('nan')
 
 
 # ============================================================================
@@ -352,13 +459,59 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
         logger.info(f"  FID [{view_name}]: {view_fid:.2f}")
 
     # ========================================================================
+    # FVD (distribution-level, video)
+    # ========================================================================
+    logger.info(f"\n{'='*60}")
+    logger.info("Computing FVD (Fréchet Video Distance)...")
+    logger.info(f"{'='*60}")
+
+    # Collect all videos for FVD
+    all_gen_videos = []
+    all_gt_videos = []
+    fvd_per_view = {}
+
+    for view_name in all_views:
+        pairs = pairs_by_view[view_name]
+        view_gen_videos = []
+        view_gt_videos = []
+
+        for sample_id, gen_path, gt_path in pairs:
+            gen_frames_np = read_video_frames(gen_path)
+            gt_frames_np = read_video_frames(gt_path)
+            n = min(len(gen_frames_np), len(gt_frames_np))
+
+            gen_video = frames_to_tensor(gen_frames_np[:n])  # (T, C, H, W)
+            gt_video = frames_to_tensor(gt_frames_np[:n])
+
+            view_gen_videos.append(gen_video)
+            view_gt_videos.append(gt_video)
+            all_gen_videos.append(gen_video)
+            all_gt_videos.append(gt_video)
+
+        # Per-view FVD
+        if len(view_gen_videos) >= 2:  # Need at least 2 samples for covariance
+            view_fvd = compute_fvd(view_gen_videos, view_gt_videos, device)
+            fvd_per_view[view_name] = view_fvd
+            logger.info(f"  FVD [{view_name}]: {view_fvd:.2f}")
+        else:
+            fvd_per_view[view_name] = float('nan')
+            logger.warning(f"  FVD [{view_name}]: skipped (need >= 2 samples)")
+
+    # Overall FVD
+    if len(all_gen_videos) >= 2:
+        fvd_overall = compute_fvd(all_gen_videos, all_gt_videos, device)
+        logger.info(f"Overall FVD: {fvd_overall:.2f}")
+    else:
+        fvd_overall = float('nan')
+
+    # ========================================================================
     # Final Summary (Paper Format)
     # ========================================================================
-    logger.info(f"\n{'='*70}")
+    logger.info(f"\n{'='*90}")
     logger.info("FINAL RESULTS (Paper Format)")
-    logger.info(f"{'='*70}")
-    logger.info(f"{'View':<25} {'PSNR ↑':>15} {'SSIM ↑':>15} {'LPIPS ↓':>15} {'FID ↓':>10}")
-    logger.info(f"{'-'*80}")
+    logger.info(f"{'='*90}")
+    logger.info(f"{'View':<25} {'PSNR ↑':>15} {'SSIM ↑':>15} {'LPIPS ↓':>15} {'FID ↓':>10} {'FVD ↓':>10}")
+    logger.info(f"{'-'*90}")
 
     per_view_summary = {}
     for view_name in all_views:
@@ -367,6 +520,7 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
         vs = [r['ssim'] for r in view_results]
         vl = [r['lpips'] for r in view_results]
         vf = fid_per_view.get(view_name, float('nan'))
+        vfvd = fvd_per_view.get(view_name, float('nan'))
 
         per_view_summary[view_name] = {
             'psnr_mean': float(np.mean(vp)),
@@ -376,16 +530,17 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
             'lpips_mean': float(np.mean(vl)),
             'lpips_std': float(np.std(vl)),
             'fid': float(vf),
+            'fvd': float(vfvd),
             'n_samples': len(view_results),
         }
 
         logger.info(f"{view_name:<25} {format_mean_std(vp, 2):>15} {format_mean_std(vs, 4):>15} "
-                    f"{format_mean_std(vl, 4):>15} {vf:>10.2f}")
+                    f"{format_mean_std(vl, 4):>15} {vf:>10.2f} {vfvd:>10.2f}")
 
-    logger.info(f"{'-'*80}")
+    logger.info(f"{'-'*90}")
     logger.info(f"{'OVERALL':<25} {format_mean_std(all_psnr, 2):>15} {format_mean_std(all_ssim, 4):>15} "
-                f"{format_mean_std(all_lpips, 4):>15} {fid_overall:>10.2f}")
-    logger.info(f"{'='*70}")
+                f"{format_mean_std(all_lpips, 4):>15} {fid_overall:>10.2f} {fvd_overall:>10.2f}")
+    logger.info(f"{'='*90}")
 
     # ========================================================================
     # Save results
@@ -405,7 +560,7 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
     summary_csv = output_dir / "summary.csv"
     with open(summary_csv, 'w', newline='') as f:
         fieldnames = ['view', 'psnr_mean', 'psnr_std', 'ssim_mean', 'ssim_std',
-                      'lpips_mean', 'lpips_std', 'fid', 'n_samples']
+                      'lpips_mean', 'lpips_std', 'fid', 'fvd', 'n_samples']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for view_name in all_views:
@@ -421,6 +576,7 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
             'lpips_mean': float(np.mean(all_lpips)),
             'lpips_std': float(np.std(all_lpips)),
             'fid': float(fid_overall),
+            'fvd': float(fvd_overall),
             'n_samples': len(results),
         })
     logger.info(f"Summary (for paper): {summary_csv}")
@@ -433,6 +589,7 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
             'ssim': {'mean': float(np.mean(all_ssim)), 'std': float(np.std(all_ssim))},
             'lpips': {'mean': float(np.mean(all_lpips)), 'std': float(np.std(all_lpips))},
             'fid': float(fid_overall),
+            'fvd': float(fvd_overall),
             'n_samples': len(results),
         },
         'per_view': per_view_summary,
@@ -446,9 +603,9 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
     latex_path = output_dir / "table.tex"
     with open(latex_path, 'w') as f:
         f.write("% Auto-generated LaTeX table\n")
-        f.write("\\begin{tabular}{lcccc}\n")
+        f.write("\\begin{tabular}{lccccc}\n")
         f.write("\\toprule\n")
-        f.write("View & PSNR $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & FID $\\downarrow$ \\\\\n")
+        f.write("View & PSNR $\\uparrow$ & SSIM $\\uparrow$ & LPIPS $\\downarrow$ & FID $\\downarrow$ & FVD $\\downarrow$ \\\\\n")
         f.write("\\midrule\n")
         for view_name in all_views:
             s = per_view_summary[view_name]
@@ -456,13 +613,15 @@ def evaluate(input_dir: str, output_csv: str, device: str = "cuda"):
                     f"{s['psnr_mean']:.2f} $\\pm$ {s['psnr_std']:.2f} & "
                     f"{s['ssim_mean']:.4f} $\\pm$ {s['ssim_std']:.4f} & "
                     f"{s['lpips_mean']:.4f} $\\pm$ {s['lpips_std']:.4f} & "
-                    f"{s['fid']:.2f} \\\\\n")
+                    f"{s['fid']:.2f} & "
+                    f"{s['fvd']:.2f} \\\\\n")
         f.write("\\midrule\n")
         f.write(f"Overall & "
                 f"{np.mean(all_psnr):.2f} $\\pm$ {np.std(all_psnr):.2f} & "
                 f"{np.mean(all_ssim):.4f} $\\pm$ {np.std(all_ssim):.4f} & "
                 f"{np.mean(all_lpips):.4f} $\\pm$ {np.std(all_lpips):.4f} & "
-                f"{fid_overall:.2f} \\\\\n")
+                f"{fid_overall:.2f} & "
+                f"{fvd_overall:.2f} \\\\\n")
         f.write("\\bottomrule\n")
         f.write("\\end{tabular}\n")
     logger.info(f"LaTeX table: {latex_path}")
