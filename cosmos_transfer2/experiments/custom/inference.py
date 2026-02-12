@@ -64,6 +64,9 @@ def parse_args():
                         help="Run inference on ALL test samples")
     parser.add_argument("--sample_idx", type=int, default=None,
                         help="Single test sample index (fallback if no --scene_ids or --all_samples)")
+    # Dataset selection
+    parser.add_argument("--use_train_set", action="store_true", default=False,
+                        help="Use training set instead of test set (for debugging/visualization)")
     # Model & inference params
     parser.add_argument("--context_parallel_size", type=int, default=1,
                         help="Context parallel size (number of GPUs)")
@@ -164,23 +167,39 @@ def load_model_and_config(experiment_name: str, ckpt_path: str, context_parallel
     return model, config
 
 
-def create_test_dataset(num_views: int = 7):
-    """Create test dataset (all test samples)."""
+def create_test_dataset(num_views: int = 7, use_train_set: bool = False):
+    """Create dataset for inference.
+
+    Args:
+        num_views: Number of camera views
+        use_train_set: If True, use training set; if False, use test set
+    """
     from cosmos_transfer2.experiments.custom.custom_multi_control_experiment import (
         BLUR_DATASET_DIR,
         DEPTH_DATASET_DIR,
         HDMAP_DATASET_DIR,
         TRAINING_CAMERAS,
         TRAIN_SCENE_IDS,
+        TEST_SCENE_IDS,
     )
     from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
         MultiControlMultiviewDataset,
     )
 
     camera_keys = TRAINING_CAMERAS[:num_views]
-    logger.info(f"Creating test dataset with {num_views} view(s): {camera_keys}")
 
-    test_dataset = MultiControlMultiviewDataset(
+    if use_train_set:
+        # For training set: exclude test scenes
+        exclude_ids = TEST_SCENE_IDS
+        dataset_type = "training"
+    else:
+        # For test set: exclude training scenes
+        exclude_ids = TRAIN_SCENE_IDS
+        dataset_type = "test"
+
+    logger.info(f"Creating {dataset_type} dataset with {num_views} view(s): {camera_keys}")
+
+    dataset = MultiControlMultiviewDataset(
         blur_dataset_dir=BLUR_DATASET_DIR,
         depth_dataset_dir=DEPTH_DATASET_DIR,
         hdmap_dataset_dir=HDMAP_DATASET_DIR,
@@ -190,14 +209,14 @@ def create_test_dataset(num_views: int = 7):
         camera_keys=camera_keys,
         single_caption_camera_name="camera_front_wide_120fov",
         add_view_prefix_to_caption=True,
-        exclude_scene_ids=TRAIN_SCENE_IDS,
+        exclude_scene_ids=exclude_ids,
     )
-    logger.info(f"Test dataset has {len(test_dataset)} samples")
+    logger.info(f"{dataset_type.capitalize()} dataset has {len(dataset)} samples")
 
-    if len(test_dataset) == 0:
-        raise ValueError("No test samples found!")
+    if len(dataset) == 0:
+        raise ValueError(f"No {dataset_type} samples found!")
 
-    return test_dataset
+    return dataset
 
 
 def get_sample_indices_for_scenes(test_dataset, scene_ids: List[str]) -> List[int]:
@@ -379,6 +398,7 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Checkpoint: {args.ckpt_path}")
     logger.info(f"Output dir: {args.output_dir}")
+    logger.info(f"Dataset: {'TRAINING SET' if args.use_train_set else 'TEST SET'}")
     logger.info(f"Scene IDs: {args.scene_ids or 'all' if args.all_samples else args.sample_idx}")
     logger.info(f"Context parallel size: {args.context_parallel_size}")
     logger.info(f"Views: {num_views} -> {camera_names}")
@@ -403,8 +423,8 @@ def main():
             process_group=process_group,
         )
 
-        # Create test dataset
-        test_dataset = create_test_dataset(num_views=num_views)
+        # Create dataset (test set by default, or train set if --use_train_set)
+        test_dataset = create_test_dataset(num_views=num_views, use_train_set=args.use_train_set)
 
         # Determine which samples to process
         if args.scene_ids:
