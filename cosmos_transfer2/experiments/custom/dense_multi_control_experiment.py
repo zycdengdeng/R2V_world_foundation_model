@@ -226,7 +226,7 @@ dense_multi_control_post_train = dict(
     scheduler=dict(
         f_max=[1.0],  # Peak lr = 1e-4
         f_min=[0.1],  # Final lr = 1e-5
-        warm_up_steps=[500],  # Warmup: 0-500
+        warm_up_steps=[200],  # Warmup: 0-200
         cycle_lengths=[8000],  # Total 8000 iterations
     ),
     model=dict(
