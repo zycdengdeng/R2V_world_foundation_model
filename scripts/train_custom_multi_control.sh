@@ -18,7 +18,7 @@ set -e
 NUM_GPUS=${NUM_GPUS:-8}
 
 # Output directory for checkpoints and logs
-export IMAGINAIRE_OUTPUT_ROOT="/mnt/zihanw/Output_R2V_world_foundation_model_v1"
+export IMAGINAIRE_OUTPUT_ROOT="${IMAGINAIRE_OUTPUT_ROOT:-/mnt/zihanw/Output_R2V_world_foundation_model_v1}"
 
 # HuggingFace configuration (for model download)
 export HF_HOME="/mnt/zihanw/.cache/huggingface"
