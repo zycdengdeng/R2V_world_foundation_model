@@ -210,7 +210,7 @@ dense_multi_control_post_train = dict(
         name=f"2b_dense_multi_control_{RUN_TIMESTAMP}",
     ),
     checkpoint=dict(
-        save_iter=20,  # DEBUG: save early for OOM testing (was 200)
+        save_iter=200,  # Save every 200 iterations
         # Start from Transfer2.5 checkpoint (from scratch)
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
         load_training_state=False,  # Don't load optimizer state - training from scratch
@@ -290,7 +290,7 @@ dense_multi_control_post_train = dict(
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=99999,  # DEBUG: disable ema during OOM test (was 500)
+                every_n=500,  # EMA sampling every 500 iterations
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
@@ -303,7 +303,7 @@ dense_multi_control_post_train = dict(
             ),
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=99999,  # DEBUG: disable test_loss during OOM test (was 200)
+                every_n=200,  # Test loss every 200 iterations
                 num_timestep_samples=4,
                 name="test_loss",
             ),
