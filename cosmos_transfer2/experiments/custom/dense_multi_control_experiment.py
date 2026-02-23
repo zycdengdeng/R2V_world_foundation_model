@@ -415,19 +415,34 @@ dense_multi_control_post_train_small = dict(
         ),
     ),
     trainer=dict(
-        logging_iter=5,
-        grad_accum_iter=4,
+        logging_iter=10,  # Matches: large=50, both trigger at save_iter multiples
+        grad_accum_iter=4,  # Same as large
         max_iter=50000,  # Long max_iter to hold the server
         callbacks=dict(
             heart_beat=dict(save_s3=False),
-            iter_speed=dict(hit_thres=5, every_n=5, save_s3=False),
+            iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),  # Same as large
             device_monitor=dict(save_s3=False),
-            grad_clip=dict(clip_norm=0.1),
-            # Test loss at iter 10 (same as checkpoint save)
+            grad_clip=dict(clip_norm=0.1),  # Same as large
+            # EMA sampling - same config as large, but every_n=20 so it does NOT
+            # trigger at iter 10 (large: 500 does not trigger at 200)
+            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=20,
+                is_x0=False,
+                is_ema=True,
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_s3=False,
+            ),
+            # Test loss at iter 10 (same as checkpoint save_iter=10)
+            # Mirrors large: every_n_test_loss=200 == save_iter=200
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
                 every_n=10,
-                num_timestep_samples=4,
+                num_timestep_samples=4,  # Same as large
                 name="test_loss",
             ),
             wandb=dict(save_s3=False),
