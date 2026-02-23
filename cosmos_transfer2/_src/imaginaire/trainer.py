@@ -240,6 +240,7 @@ class ImaginaireTrainer:
                     iteration += 1
                     # Save checkpoint.
                     if iteration % self.config.checkpoint.save_iter == 0:
+                        torch.cuda.empty_cache()
                         self.checkpointer.save(model, optimizer, scheduler, grad_scaler, iteration=iteration)
                     self.callbacks.on_training_step_end(model, data_batch, output_batch, loss, iteration=iteration)
                     # Validation.
@@ -256,6 +257,7 @@ class ImaginaireTrainer:
                     break
         log.success("Done with training.")
         if iteration % self.config.checkpoint.save_iter != 0:
+            torch.cuda.empty_cache()
             self.checkpointer.save(model, optimizer, scheduler, grad_scaler, iteration=iteration)
         self.callbacks.on_train_end(model, iteration=iteration)
         self.checkpointer.finalize()
