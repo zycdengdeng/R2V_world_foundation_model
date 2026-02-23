@@ -234,23 +234,23 @@ custom_multi_control_post_train = dict(
     ),
     checkpoint=dict(
         save_iter=200,  # Save every 200 iterations
-        # Resume from iteration 5000 checkpoint - warm restart for continued training
-        load_path="/mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20260120_122826/checkpoints/iter_000005000",
-        load_training_state=True,  # Load optimizer, scheduler, trainer state to resume
-        strict_resume=False,  # Allow missing keys
+        # Train from scratch using Transfer2.5 multiview base checkpoint
+        load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
+        load_training_state=False,  # Fresh training, no optimizer/scheduler state
+        strict_resume=False,  # Allow missing keys (new control heads)
         load_from_object_store=dict(enabled=False),
         save_to_object_store=dict(enabled=False),
     ),
     optimizer=dict(
-        lr=3e-5,  # Lower peak lr for warm restart (was 1e-4)
+        lr=1e-4,  # Full training from scratch
         weight_decay=1e-3,
         betas=[0.9, 0.999],
     ),
     scheduler=dict(
-        f_max=[1.0],  # Peak lr = 3e-5
-        f_min=[0.33],  # Final lr = 1e-5 (3e-5 * 0.33)
-        warm_up_steps=[5100],  # Short warmup: 5001-5100 (100 steps)
-        cycle_lengths=[8000],  # Extended to 8000 total
+        f_max=[1.0],  # Peak lr = 1e-4
+        f_min=[0.33],  # Final lr = 3.3e-5 (1e-4 * 0.33)
+        warm_up_steps=[100],  # Warmup: iter 0-100
+        cycle_lengths=[8000],  # Full 8000 iterations
     ),
     model=dict(
         config=dict(
@@ -312,7 +312,7 @@ custom_multi_control_post_train = dict(
     trainer=dict(
         logging_iter=50,  # Log every 50 iterations
         grad_accum_iter=4,  # Accumulate gradients over 4 steps (effective batch_size=4)
-        max_iter=8000,  # Extended: 5000 original + 3000 warm restart
+        max_iter=8000,  # Full training from scratch: 0 -> 8000
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
