@@ -240,8 +240,31 @@ class ImaginaireTrainer:
                     iteration += 1
                     # Save checkpoint.
                     if iteration % self.config.checkpoint.save_iter == 0:
+                        # === DEBUG: GPU memory before checkpoint save ===
+                        _free, _total = torch.cuda.mem_get_info()
+                        _alloc = torch.cuda.memory_allocated()
+                        _reserved = torch.cuda.memory_reserved()
+                        _peak = torch.cuda.max_memory_allocated()
+                        log.critical(
+                            f"[CKPT_DEBUG] iter={iteration} BEFORE empty_cache: "
+                            f"alloc={_alloc/1e9:.2f}GB reserved={_reserved/1e9:.2f}GB "
+                            f"peak={_peak/1e9:.2f}GB free={_free/1e9:.2f}GB total={_total/1e9:.2f}GB"
+                        )
                         torch.cuda.empty_cache()
+                        _free2, _ = torch.cuda.mem_get_info()
+                        _reserved2 = torch.cuda.memory_reserved()
+                        log.critical(
+                            f"[CKPT_DEBUG] iter={iteration} AFTER empty_cache: "
+                            f"reserved={_reserved2/1e9:.2f}GB free={_free2/1e9:.2f}GB "
+                            f"freed={(_free2-_free)/1e9:.2f}GB"
+                        )
+                        torch.cuda.reset_peak_memory_stats()
                         self.checkpointer.save(model, optimizer, scheduler, grad_scaler, iteration=iteration)
+                        _peak_save = torch.cuda.max_memory_allocated()
+                        log.critical(
+                            f"[CKPT_DEBUG] iter={iteration} AFTER save: "
+                            f"peak_during_save={_peak_save/1e9:.2f}GB"
+                        )
                     self.callbacks.on_training_step_end(model, data_batch, output_batch, loss, iteration=iteration)
                     # Validation.
                     if self.config.trainer.run_validation and iteration % self.config.trainer.validation_iter == 0:

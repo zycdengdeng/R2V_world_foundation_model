@@ -718,9 +718,36 @@ class DistributedCheckpointer(AbstractCheckpointer):
             self.callbacks.on_save_checkpoint_start(model, iteration)
 
         checkpoint_file = f"iter_{iteration:09}"
+
+        # === DEBUG: Monitor memory during state_dict extraction ===
+        _free, _total = torch.cuda.mem_get_info()
+        _alloc = torch.cuda.memory_allocated()
+        log.critical(
+            f"[DCP_DEBUG] iter={iteration} before state_dict extraction: "
+            f"alloc={_alloc/1e9:.2f}GB free={_free/1e9:.2f}GB"
+        )
+
+        model_sd = ModelWrapper(model).state_dict()
+        _free_m, _ = torch.cuda.mem_get_info()
+        _alloc_m = torch.cuda.memory_allocated()
+        log.critical(
+            f"[DCP_DEBUG] iter={iteration} after model state_dict: "
+            f"alloc={_alloc_m/1e9:.2f}GB free={_free_m/1e9:.2f}GB "
+            f"delta_alloc={(_alloc_m-_alloc)/1e9:.2f}GB"
+        )
+
+        optim_sd = OptimizerWrapper(model, optimizer).state_dict()
+        _free_o, _ = torch.cuda.mem_get_info()
+        _alloc_o = torch.cuda.memory_allocated()
+        log.critical(
+            f"[DCP_DEBUG] iter={iteration} after optim state_dict: "
+            f"alloc={_alloc_o/1e9:.2f}GB free={_free_o/1e9:.2f}GB "
+            f"delta_alloc={(_alloc_o-_alloc_m)/1e9:.2f}GB"
+        )
+
         to_save_dict = {
-            "model": ModelWrapper(model).state_dict(),
-            "optim": OptimizerWrapper(model, optimizer).state_dict(),
+            "model": model_sd,
+            "optim": optim_sd,
             "scheduler": scheduler.state_dict(),
             "trainer": {
                 "grad_scaler": grad_scaler.state_dict(),
