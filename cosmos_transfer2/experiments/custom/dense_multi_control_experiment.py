@@ -329,6 +329,148 @@ dense_multi_control_post_train = dict(
 # Small Test Configuration (verify checkpoint save + test loss at same iter)
 # ============================================================================
 
+# ============================================================================
+# Resume Training Configuration (from iter 2200 checkpoint)
+# ============================================================================
+
+# Path to the checkpoint to resume from
+RESUME_CHECKPOINT_PATH = "/mnt/zihanw/Output_R2V_world_foundation_model_v2/cosmos_transfer_dense/multi_control/2b_dense_multi_control_20260223_171249/checkpoints/iter_000002200"
+
+dense_multi_control_post_train_resume = dict(
+    defaults=[
+        {"override /data_train": "dense_multi_control_train_data"},
+        {"override /model": "fsdp_rectified_flow_multiview_control"},
+        {"override /net": "cosmos_v1_2B_multiview_control"},
+        {"override /conditioner": "dense_multi_control_conditioner"},
+        {"override /ckpt_type": "dcp"},
+        {"override /optimizer": "fusedadamw"},
+        {"override /tokenizer": "wan2pt1_tokenizer"},
+        {"override /callbacks": ["basic", "wandb", "cluster_speed"]},
+        "_self_",
+    ],
+    job=dict(
+        project="cosmos_transfer_dense",
+        group="multi_control",
+        name=f"2b_dense_multi_control_resume_{RUN_TIMESTAMP}",
+    ),
+    checkpoint=dict(
+        save_iter=200,  # Same as original
+        # Resume from the interrupted checkpoint
+        load_path=RESUME_CHECKPOINT_PATH,
+        load_training_state=True,  # Load optimizer/scheduler/trainer states
+        strict_resume=True,  # Exact resume, all keys must match
+        load_from_object_store=dict(enabled=False),
+        save_to_object_store=dict(enabled=False),
+    ),
+    optimizer=dict(
+        lr=1e-4,
+        weight_decay=1e-3,
+        betas=[0.9, 0.999],
+    ),
+    scheduler=dict(
+        f_max=[1.0],
+        f_min=[0.1],
+        warm_up_steps=[200],
+        cycle_lengths=[8000],
+    ),
+    model=dict(
+        config=dict(
+            hint_keys="hdmap_blur_depth",
+            min_num_conditional_frames_per_view=0,
+            max_num_conditional_frames_per_view=0,
+            condition_locations=["first_random_n"],
+            train_sample_views_range=[7, 7],
+            conditional_frames_probs={0: 1.0},
+            state_t=8,
+            online_text_embeddings_as_dict=False,
+            fsdp_shard_size=WORLD_SIZE,
+            resolution="720p",
+            shift=5,
+            use_dynamic_shift=False,
+            train_time_weight="uniform",
+            train_time_distribution="logitnormal",
+            base_load_from=None,
+            net=dict(
+                timestep_scale=0.001,
+                use_wan_fp32_strategy=True,
+                concat_view_embedding=True,
+                view_condition_dim=7,
+                state_t=8,
+                n_cameras_emb=7,
+                vace_has_mask=False,
+                use_input_hint_block=True,
+                condition_strategy="spaced",
+                vace_block_every_n=7,
+                rope_enable_fps_modulation=False,
+                rope_h_extrapolation_ratio=3.0,
+                rope_w_extrapolation_ratio=3.0,
+                rope_t_extrapolation_ratio=8.0 / 24.0,
+                use_crossattn_projection=True,
+                crossattn_proj_in_channels=100352,
+                crossattn_emb_channels=1024,
+                sac_config=dict(mode="predict2_2b_720_aggressive"),
+            ),
+            conditioner=dict(
+                use_video_condition=dict(dropout_rate=0.0),
+                text=dict(dropout_rate=0.2, use_empty_string=False),
+            ),
+            tokenizer=dict(temporal_window=16),
+            text_encoder_class="reason1p1_7B",
+            text_encoder_config=dict(
+                embedding_concat_strategy=str(EmbeddingConcatStrategy.FULL_CONCAT),
+                compute_online=True,
+            ),
+        ),
+    ),
+    trainer=dict(
+        logging_iter=50,
+        grad_accum_iter=4,
+        max_iter=8000,  # Same total iterations as original
+        callbacks=dict(
+            heart_beat=dict(save_s3=False),
+            iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
+            device_monitor=dict(save_s3=False),
+            grad_clip=dict(clip_norm=0.1),
+            every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
+                every_n=500,
+                is_x0=False,
+                is_ema=True,
+                num_sampling_step=35,
+                guidance=[7],
+                fps=10,
+                ctrl_hint_keys=["control_input_hdmap_bbox", "control_input_blur", "control_input_depth"],
+                control_weights=[1.0],
+                num_cond_frames=[0],
+                save_s3=False,
+            ),
+            every_n_test_loss=L(EveryNTestLoss)(
+                eval_dataset=create_eval_dataset(),
+                every_n=200,
+                num_timestep_samples=4,
+                name="test_loss",
+            ),
+            wandb=dict(save_s3=False),
+            wandb_10x=dict(save_s3=False),
+            dataloader_speed=dict(save_s3=False),
+            frame_loss_log=dict(save_s3=False),
+        ),
+    ),
+    model_parallel=dict(
+        context_parallel_size=WORLD_SIZE,
+    ),
+    dataloader_train=dict(
+        augmentation_config=dict(
+            single_caption_camera_name="camera_front_wide_120fov",
+            add_view_prefix_to_caption=True,
+        ),
+    ),
+)
+
+
+# ============================================================================
+# Small Test Configuration (verify checkpoint save + test loss at same iter)
+# ============================================================================
+
 dense_multi_control_post_train_small = dict(
     defaults=[
         {"override /data_train": "dense_multi_control_train_data"},
@@ -478,7 +620,7 @@ cs.store(
 )
 
 # Register the experiment configuration
-for _item in [dense_multi_control_post_train, dense_multi_control_post_train_small]:
+for _item in [dense_multi_control_post_train, dense_multi_control_post_train_resume, dense_multi_control_post_train_small]:
     experiment_name = [name.lower() for name, value in globals().items() if value is _item][0]
     cs.store(
         group="experiment",
