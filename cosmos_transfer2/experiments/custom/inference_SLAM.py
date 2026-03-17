@@ -2,10 +2,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """
-Standalone inference script for custom multi-control model with SLAM guidance inputs.
+Standalone inference script for dense/roadside multi-control model with SLAM guidance inputs.
 
-Same as inference.py but uses SLAM-based control inputs from:
-    /mnt/zihanw/merge_dyn_stat/proj_utils_pro_Roadside_transfer/transfer_video_maker/output/
+Uses RoadsideMultiControlDataset with NESTED directory structure:
+    {dataset_dir}/control_input_blur/ftheta_camera_xxx/scene001/{sample}.mp4
 
 Usage:
     # Inference on specific scene(s) (8 GPUs, 7 views)
@@ -15,7 +15,7 @@ Usage:
         --output_dir /mnt/zihanw/inference_SLAM_output \
         --context_parallel_size 8 \
         --num_views 7 \
-        --scene_ids 053
+        --scene_ids 001 002
 
     # Full test set inference
     torchrun --nproc_per_node=8 --master_port=12345 \
@@ -48,7 +48,7 @@ from cosmos_transfer2._src.predict2.models.video2world_model import NUM_CONDITIO
 CONTROL_WEIGHT_KEY = "control_weight"
 
 # ============================================================================
-# SLAM guidance dataset paths
+# SLAM guidance dataset paths (nested directory structure)
 # ============================================================================
 SLAM_BLUR_DATASET_DIR = "/mnt/zihanw/merge_dyn_stat/proj_utils_pro_Roadside_transfer/transfer_video_maker/output/BlurProjection"
 SLAM_DEPTH_DATASET_DIR = "/mnt/zihanw/merge_dyn_stat/proj_utils_pro_Roadside_transfer/transfer_video_maker/output/DepthSparse"
@@ -56,16 +56,16 @@ SLAM_HDMAP_DATASET_DIR = "/mnt/zihanw/merge_dyn_stat/proj_utils_pro_Roadside_tra
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Multi-control model inference (SLAM guidance)")
+    parser = argparse.ArgumentParser(description="Multi-control model inference (SLAM/Roadside guidance)")
     parser.add_argument("--ckpt_path", type=str, required=True,
                         help="Path to checkpoint directory (e.g., .../iter_000008000)")
-    parser.add_argument("--experiment", type=str, default="custom_multi_control_post_train",
-                        help="Experiment name")
+    parser.add_argument("--experiment", type=str, default="dense_multi_control_post_train",
+                        help="Experiment name (default: dense_multi_control_post_train)")
     parser.add_argument("--output_dir", type=str, default="/mnt/zihanw/inference_SLAM_output",
                         help="Output directory for generated videos")
     # Sample selection: --scene_ids, --all_samples, or --sample_idx
     parser.add_argument("--scene_ids", type=str, nargs="+", default=None,
-                        help="Scene IDs to run inference on (e.g., 031 033)")
+                        help="Scene IDs to run inference on (e.g., 001 002 031)")
     parser.add_argument("--all_samples", action="store_true", default=False,
                         help="Run inference on ALL test samples")
     parser.add_argument("--sample_idx", type=int, default=None,
@@ -174,19 +174,21 @@ def load_model_and_config(experiment_name: str, ckpt_path: str, context_parallel
 
 
 def create_test_dataset(num_views: int = 7, use_train_set: bool = False):
-    """Create dataset for inference using SLAM guidance inputs.
+    """Create dataset for inference using SLAM/Roadside guidance inputs.
+
+    Uses RoadsideMultiControlDataset with nested directory structure.
 
     Args:
         num_views: Number of camera views
         use_train_set: If True, use training set; if False, use test set
     """
-    from cosmos_transfer2.experiments.custom.custom_multi_control_experiment import (
+    from cosmos_transfer2.experiments.custom.dense_multi_control_experiment import (
         TRAINING_CAMERAS,
         TRAIN_SCENE_IDS,
         TEST_SCENE_IDS,
     )
-    from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import (
-        MultiControlMultiviewDataset,
+    from cosmos_transfer2.experiments.custom.roadside_multi_control_dataset import (
+        RoadsideMultiControlDataset,
     )
 
     camera_keys = TRAINING_CAMERAS[:num_views]
@@ -198,12 +200,12 @@ def create_test_dataset(num_views: int = 7, use_train_set: bool = False):
         exclude_ids = TRAIN_SCENE_IDS
         dataset_type = "test"
 
-    logger.info(f"Creating {dataset_type} dataset (SLAM guidance) with {num_views} view(s): {camera_keys}")
+    logger.info(f"Creating {dataset_type} dataset (SLAM/Roadside, nested structure) with {num_views} view(s): {camera_keys}")
     logger.info(f"SLAM Blur dir: {SLAM_BLUR_DATASET_DIR}")
     logger.info(f"SLAM Depth dir: {SLAM_DEPTH_DATASET_DIR}")
     logger.info(f"SLAM HDMap dir: {SLAM_HDMAP_DATASET_DIR}")
 
-    dataset = MultiControlMultiviewDataset(
+    dataset = RoadsideMultiControlDataset(
         blur_dataset_dir=SLAM_BLUR_DATASET_DIR,
         depth_dataset_dir=SLAM_DEPTH_DATASET_DIR,
         hdmap_dataset_dir=SLAM_HDMAP_DATASET_DIR,
@@ -226,22 +228,31 @@ def create_test_dataset(num_views: int = 7, use_train_set: bool = False):
 def get_sample_indices_for_scenes(test_dataset, scene_ids: List[str]) -> List[int]:
     """Get dataset indices for specific scene IDs.
 
-    Sample IDs are like "031_seg01", scene ID is the part before "_".
+    For RoadsideMultiControlDataset, samples are dicts with:
+        - sample_id: "scene001/001_id45_seg01"
+        - scene: "scene001"
+        - name: "001_id45_seg01"
+    Scene ID is extracted from the scene folder name: "scene001" -> "001"
     """
     scene_set = set(scene_ids)
     indices = []
-    for i, sample_id in enumerate(test_dataset.samples):
-        scene_id = sample_id.split("_")[0]
+    for i, sample_info in enumerate(test_dataset.samples):
+        scene_id = sample_info["scene"].replace("scene", "")  # "scene001" -> "001"
         if scene_id in scene_set:
             indices.append(i)
     logger.info(f"Found {len(indices)} samples for scenes {scene_ids}: "
-                f"{[test_dataset.samples[i] for i in indices]}")
+                f"{[test_dataset.samples[i]['sample_id'] for i in indices]}")
     return indices
+
+
+def get_sample_display_name(test_dataset, idx: int) -> str:
+    """Get display name for a sample at given index."""
+    return test_dataset.samples[idx]["sample_id"]
 
 
 def load_sample(test_dataset, sample_idx: int, model) -> Dict[str, Any]:
     """Load a single sample and prepare for inference."""
-    from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
+    from cosmos_transfer2.experiments.custom.roadside_multi_control_dataset import collate_fn
 
     uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
 
@@ -320,8 +331,9 @@ def save_per_view_results(
     n_views = len(batch.get("view_indices_selection", [[0]])[0])
     sample_id = batch.get("__key__", [f"sample_{sample_idx}"])[0]
 
-    # Create per-sample directory
-    sample_dir = Path(output_dir) / sample_id
+    # Flatten nested sample_id for output path: "scene001/001_id45_seg01" -> "scene001_001_id45_seg01"
+    safe_sample_id = sample_id.replace("/", "_")
+    sample_dir = Path(output_dir) / safe_sample_id
     sample_dir.mkdir(parents=True, exist_ok=True)
 
     # Convert from [-1, 1] to [0, 1]
@@ -371,13 +383,14 @@ def main():
     num_views = args.num_views if args.num_views is not None else args.context_parallel_size
 
     # Get camera names for saving
-    from cosmos_transfer2.experiments.custom.custom_multi_control_experiment import TRAINING_CAMERAS
+    from cosmos_transfer2.experiments.custom.dense_multi_control_experiment import TRAINING_CAMERAS
     camera_names = list(TRAINING_CAMERAS[:num_views])
 
     logger.info("=" * 60)
-    logger.info("Multi-Control Model Inference (SLAM Guidance)")
+    logger.info("Multi-Control Model Inference (SLAM/Roadside Guidance)")
     logger.info("=" * 60)
     logger.info(f"Checkpoint: {args.ckpt_path}")
+    logger.info(f"Experiment: {args.experiment}")
     logger.info(f"Output dir: {args.output_dir}")
     logger.info(f"Dataset: {'TRAINING SET' if args.use_train_set else 'TEST SET'}")
     logger.info(f"Scene IDs: {args.scene_ids or 'all' if args.all_samples else args.sample_idx}")
@@ -407,7 +420,7 @@ def main():
             process_group=process_group,
         )
 
-        # Create dataset with SLAM guidance
+        # Create dataset with SLAM/Roadside guidance (nested structure)
         test_dataset = create_test_dataset(num_views=num_views, use_train_set=args.use_train_set)
 
         # Determine which samples to process
@@ -426,13 +439,14 @@ def main():
 
         logger.info(f"Will process {len(sample_indices)} sample(s)")
         for idx in sample_indices:
-            logger.info(f"  [{idx}] {test_dataset.samples[idx]}")
+            logger.info(f"  [{idx}] {get_sample_display_name(test_dataset, idx)}")
 
         # Process each sample
         for i, sample_idx in enumerate(sample_indices):
+            sample_name = get_sample_display_name(test_dataset, sample_idx)
             logger.info(f"\n{'='*60}")
             logger.info(f"Processing sample {i+1}/{len(sample_indices)}: "
-                        f"{test_dataset.samples[sample_idx]} (idx={sample_idx})")
+                        f"{sample_name} (idx={sample_idx})")
             logger.info(f"{'='*60}")
 
             # Aggressive GPU cleanup before each sample
@@ -475,7 +489,7 @@ def main():
             if dist.is_initialized():
                 dist.barrier()
 
-            logger.info(f"Sample {test_dataset.samples[sample_idx]} completed")
+            logger.info(f"Sample {sample_name} completed")
 
         logger.info("=" * 60)
         logger.info(f"SUCCESS! All {len(sample_indices)} sample(s) completed.")
