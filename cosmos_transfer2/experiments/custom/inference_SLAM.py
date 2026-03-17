@@ -182,16 +182,19 @@ def create_test_dataset(num_views: int = 7, use_train_set: bool = False):
         num_views: Number of camera views
         use_train_set: If True, use training set; if False, use test set
     """
+    from cosmos_transfer2.experiments.custom.roadside_multi_control_dataset import (
+        RoadsideMultiControlDataset,
+        DEFAULT_CAMERAS,
+    )
+
+    # Import train/test split IDs (this triggers module-level registration in
+    # dense_multi_control_experiment, so only import after init_distributed)
     from cosmos_transfer2.experiments.custom.dense_multi_control_experiment import (
-        TRAINING_CAMERAS,
         TRAIN_SCENE_IDS,
         TEST_SCENE_IDS,
     )
-    from cosmos_transfer2.experiments.custom.roadside_multi_control_dataset import (
-        RoadsideMultiControlDataset,
-    )
 
-    camera_keys = TRAINING_CAMERAS[:num_views]
+    camera_keys = DEFAULT_CAMERAS[:num_views]
 
     if use_train_set:
         exclude_ids = TEST_SCENE_IDS
@@ -382,9 +385,10 @@ def main():
 
     num_views = args.num_views if args.num_views is not None else args.context_parallel_size
 
-    # Get camera names for saving
-    from cosmos_transfer2.experiments.custom.dense_multi_control_experiment import TRAINING_CAMERAS
-    camera_names = list(TRAINING_CAMERAS[:num_views])
+    # Get camera names for saving (use DEFAULT_CAMERAS from dataset module to avoid
+    # heavy side effects from importing dense_multi_control_experiment before init_distributed)
+    from cosmos_transfer2.experiments.custom.roadside_multi_control_dataset import DEFAULT_CAMERAS
+    camera_names = list(DEFAULT_CAMERAS[:num_views])
 
     logger.info("=" * 60)
     logger.info("Multi-Control Model Inference (SLAM/Roadside Guidance)")
