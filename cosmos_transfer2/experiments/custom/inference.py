@@ -315,19 +315,17 @@ def run_inference_single(
 
 def save_per_view_results(
     generated: torch.Tensor,
-    raw_data: torch.Tensor,
     batch: Dict[str, Any],
     output_dir: str,
     sample_idx: int,
     camera_names: List[str],
     fps: int = 10,
 ):
-    """Save per-view generated and ground truth videos.
+    """Save per-view generated videos.
 
     Output structure:
         {output_dir}/{sample_id}/
             {camera_name}_generated.mp4
-            {camera_name}_gt.mp4
             {camera_name}_control_blur.mp4
             {camera_name}_control_depth.mp4
             {camera_name}_control_hdmap.mp4
@@ -345,13 +343,10 @@ def save_per_view_results(
 
     # Convert from [-1, 1] to [0, 1]
     generated_01 = ((generated.float() + 1.0) / 2.0).clamp(0, 1)
-    gt_01 = ((raw_data.float() + 1.0) / 2.0).clamp(0, 1)
-
     logger.info(f"Saving per-view results for {sample_id}: {n_views} views to {sample_dir}")
 
     # Split by view: (B, C, V*T, H, W) -> (V, B, C, T, H, W)
     gen_views = rearrange(generated_01, "B C (V T) H W -> V B C T H W", V=n_views)
-    gt_views = rearrange(gt_01, "B C (V T) H W -> V B C T H W", V=n_views)
 
     for v in range(n_views):
         cam_name = camera_names[v] if v < len(camera_names) else f"view_{v}"
@@ -362,11 +357,7 @@ def save_per_view_results(
         gen_path = sample_dir / f"{short_name}_generated"
         save_img_or_video(gen_views[v, 0], str(gen_path), fps=fps)
 
-        # Save ground truth video for this view
-        gt_path = sample_dir / f"{short_name}_gt"
-        save_img_or_video(gt_views[v, 0], str(gt_path), fps=fps)
-
-        logger.info(f"  View {v} ({short_name}): generated + gt saved")
+        logger.info(f"  View {v} ({short_name}): generated saved")
 
     logger.info(f"All per-view results saved to: {sample_dir}")
 
@@ -474,7 +465,6 @@ def main():
             if is_rank0:
                 save_per_view_results(
                     generated=generated,
-                    raw_data=raw_data,
                     batch=batch,
                     output_dir=args.output_dir,
                     sample_idx=sample_idx,

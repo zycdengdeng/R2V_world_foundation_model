@@ -278,8 +278,8 @@ def run_inference_single(model, batch, guidance=7.0, num_steps=35,
     return generated, raw_data
 
 
-def save_per_view_results(generated, raw_data, batch, output_dir, sample_idx, fps=10):
-    """Save per-view generated and ground truth videos."""
+def save_per_view_results(generated, batch, output_dir, sample_idx, fps=10):
+    """Save per-view generated videos."""
     from cosmos_transfer2._src.imaginaire.visualize.video import save_img_or_video
 
     n_views = len(batch.get("view_indices_selection", [[0]])[0])
@@ -289,12 +289,9 @@ def save_per_view_results(generated, raw_data, batch, output_dir, sample_idx, fp
     sample_dir.mkdir(parents=True, exist_ok=True)
 
     generated_01 = ((generated.float() + 1.0) / 2.0).clamp(0, 1)
-    gt_01 = ((raw_data.float() + 1.0) / 2.0).clamp(0, 1)
-
     logger.info(f"Saving per-view results for {sample_id}: {n_views} views to {sample_dir}")
 
     gen_views = rearrange(generated_01, "B C (V T) H W -> V B C T H W", V=n_views)
-    gt_views = rearrange(gt_01, "B C (V T) H W -> V B C T H W", V=n_views)
 
     for v in range(n_views):
         cam_name = CAMERAS_4VIEW[v] if v < len(CAMERAS_4VIEW) else f"view_{v}"
@@ -303,10 +300,7 @@ def save_per_view_results(generated, raw_data, batch, output_dir, sample_idx, fp
         gen_path = sample_dir / f"{short_name}_generated"
         save_img_or_video(gen_views[v, 0], str(gen_path), fps=fps)
 
-        gt_path = sample_dir / f"{short_name}_gt"
-        save_img_or_video(gt_views[v, 0], str(gt_path), fps=fps)
-
-        logger.info(f"  View {v} ({short_name}): generated + gt saved")
+        logger.info(f"  View {v} ({short_name}): generated saved")
 
     logger.info(f"All per-view results saved to: {sample_dir}")
 
@@ -392,7 +386,6 @@ def main():
             if is_rank0:
                 save_per_view_results(
                     generated=generated,
-                    raw_data=raw_data,
                     batch=batch,
                     output_dir=args.output_dir,
                     sample_idx=sample_idx,
