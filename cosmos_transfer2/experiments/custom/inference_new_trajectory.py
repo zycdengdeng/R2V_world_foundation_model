@@ -4,16 +4,19 @@
 """
 Inference script for new trajectory data (Roadside dataset).
 
-Data structure:
-    /mnt/zihanw/proj_utils_pro_Roadside/transfer_video_maker/output/
+Data structure (flat - no scene subdirectories):
+    /mnt/zihanw/proj_utils_pro_Roadside_Generation/transfer_video_maker/output/
     ├── BlurProjection/
-    │   ├── captions/{camera}/{scene}/{sample}.json
-    │   ├── control_input_blur/{camera}/{scene}/{sample}.mp4
-    │   └── videos/{camera}/{scene}/{sample}.mp4
+    │   ├── captions/{camera}/{sample}.json
+    │   ├── control_input_blur/{camera}/{sample}.mp4
+    │   └── videos/{camera}/{sample}.mp4
     ├── DepthSparse/
-    │   └── ...
+    │   └── control_input_depth/{camera}/{sample}.mp4
     └── HDMapBbox/
-        └── ...
+        └── control_input_hdmap_bbox/{camera}/{sample}.mp4
+
+Sample naming format: {scene_id}_id{track_id}_seg{seg_id}
+    Example: 001_id13_seg01, 002_id4_seg01, 010_id107_seg02
 
 Cameras (8 views in data, use 7 for model):
     ftheta_camera_front_wide_120fov, ftheta_camera_front_tele_30fov,
@@ -22,7 +25,7 @@ Cameras (8 views in data, use 7 for model):
     ftheta_camera_rear_tele_30fov
 
 Usage:
-    # Inference on specific scene(s)
+    # Inference on specific scene(s) by scene ID prefix
     CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 WORLD_SIZE=8 \
     IMAGINAIRE_OUTPUT_ROOT="/mnt/zihanw/Output_R2V_world_foundation_model_v1" \
     HF_HOME="/mnt/zihanw/.cache/huggingface" \
@@ -34,6 +37,9 @@ Usage:
         -m cosmos_transfer2.experiments.custom.inference_new_trajectory \
         --ckpt_path /mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/multi_control/2b_custom_multi_control_20260120_122826/checkpoints/iter_000005000 \
         --scene_ids 001 003 004
+
+    # Inference on specific sample(s) by name
+    ... --sample_names 001_id13_seg01 001_id14_seg01
 
     # Inference on all samples
     ... --all_samples
@@ -68,7 +74,7 @@ CONTROL_WEIGHT_KEY = "control_weight"
 # ============================================================================
 
 # Base path for new trajectory data
-NEW_TRAJECTORY_BASE = "/mnt/zihanw/proj_utils_pro_Roadside/transfer_video_maker/output"
+NEW_TRAJECTORY_BASE = "/mnt/zihanw/proj_utils_pro_Roadside_Generation/transfer_video_maker/output"
 
 # 8 cameras in new data (ftheta_ prefix)
 NEW_TRAJECTORY_CAMERAS_ALL = (
@@ -123,20 +129,24 @@ MODEL_CAPTION_PREFIXES = {
 
 class NewTrajectoryDataset(Dataset):
     """
-    Dataset for new trajectory data with nested directory structure.
+    Dataset for new trajectory data with flat directory structure (no scene subdirectories).
 
     Directory structure:
         base_path/
         ├── BlurProjection/
-        │   ├── captions/{camera}/{scene}/{sample}.json
-        │   ├── control_input_blur/{camera}/{scene}/{sample}.mp4
-        │   └── videos/{camera}/{scene}/{sample}.mp4
+        │   ├── captions/{camera}/{sample}.json
+        │   ├── control_input_blur/{camera}/{sample}.mp4
+        │   └── videos/{camera}/{sample}.mp4
         ├── DepthSparse/
-        │   └── control_input_depth/{camera}/{scene}/{sample}.mp4
+        │   └── control_input_depth/{camera}/{sample}.mp4
         └── HDMapBbox/
-            └── control_input_hdmap_bbox/{camera}/{scene}/{sample}.mp4
+            └── control_input_hdmap_bbox/{camera}/{sample}.mp4
 
-    Sample ID format: {scene_id}_id{track_id}_seg{seg_id} (e.g., 001_id17_seg01)
+    Sample naming format: {scene_id}_id{track_id}_seg{seg_id}
+        Examples: 001_id13_seg01, 002_id4_seg01, 010_id107_seg02
+        - scene_id: 3-digit scene identifier (e.g., "001", "010")
+        - track_id: variable-length track number (e.g., "13", "107")
+        - seg_id: 2-digit segment number (e.g., "01", "02")
     """
 
     def __init__(
@@ -147,6 +157,7 @@ class NewTrajectoryDataset(Dataset):
         fps_downsample_factor: int = 1,
         camera_keys: Tuple[str, ...] = MODEL_CAMERAS[:7],  # Use first 7 cameras
         scene_ids: Optional[List[str]] = None,  # Filter by scene IDs (e.g., ["001", "003"])
+        sample_names: Optional[List[str]] = None,  # Filter by specific sample names
     ) -> None:
         self.base_path = Path(base_path)
         self.blur_path = self.base_path / "BlurProjection"
@@ -158,6 +169,7 @@ class NewTrajectoryDataset(Dataset):
         self.fps_downsample_factor = fps_downsample_factor
         self.camera_keys = camera_keys  # Model camera names (without ftheta_)
         self.scene_ids = set(scene_ids) if scene_ids else None
+        self.sample_names = set(sample_names) if sample_names else None
 
         # Validate directories
         for path, name in [(self.blur_path, "BlurProjection"),
@@ -171,71 +183,81 @@ class NewTrajectoryDataset(Dataset):
         logger.info(f"[NewTrajectoryDataset] Found {len(self.samples)} samples")
         if self.scene_ids:
             logger.info(f"[NewTrajectoryDataset] Filtered to scenes: {self.scene_ids}")
+        if self.sample_names:
+            logger.info(f"[NewTrajectoryDataset] Filtered to samples: {self.sample_names}")
 
     def _get_ftheta_camera_name(self, model_camera: str) -> str:
         """Convert model camera name to ftheta camera name."""
         return f"ftheta_{model_camera}"
 
+    def _extract_scene_id(self, sample_name: str) -> str:
+        """Extract scene ID from sample name.
+
+        Sample naming format: {scene_id}_id{track_id}_seg{seg_id}
+        Examples: 001_id13_seg01 -> "001", 010_id107_seg02 -> "010"
+        """
+        # Split by "_id" to get the scene_id prefix
+        parts = sample_name.split("_id")
+        if len(parts) >= 2:
+            return parts[0]
+        return sample_name
+
     def _build_sample_list(self) -> List[Dict[str, str]]:
-        """Build list of samples from the dataset.
+        """Build list of samples from the dataset (flat structure).
 
         Returns list of dicts with:
-            - sample_id: unique sample identifier (e.g., "scene001/001_id17_seg01")
-            - scene: scene folder name (e.g., "scene001")
-            - name: sample name without scene (e.g., "001_id17_seg01")
+            - sample_id: unique sample identifier (e.g., "001_id17_seg01")
+            - scene_id: scene identifier extracted from name (e.g., "001")
+            - name: sample name (e.g., "001_id17_seg01")
         """
         # Use first camera to find all samples
         first_camera = self._get_ftheta_camera_name(self.camera_keys[0])
+
+        # Try videos path first (for BlurProjection)
         videos_path = self.blur_path / "videos" / first_camera
+        if not videos_path.exists():
+            # Fallback to control_input_blur
+            videos_path = self.blur_path / "control_input_blur" / first_camera
 
         if not videos_path.exists():
-            raise FileNotFoundError(f"Videos path not found: {videos_path}")
+            raise FileNotFoundError(f"Data path not found: {videos_path}")
 
         samples = []
-        required_frames = self.num_video_frames * self.fps_downsample_factor
 
-        # Iterate through scene folders
-        for scene_dir in sorted(videos_path.iterdir()):
-            if not scene_dir.is_dir():
-                continue
-
-            scene_name = scene_dir.name  # e.g., "scene001"
-            scene_id = scene_name.replace("scene", "")  # e.g., "001"
+        # Flat structure: samples are directly in camera folder (no scene subdirectories)
+        for video_file in sorted(videos_path.glob("*.mp4")):
+            sample_name = video_file.stem  # e.g., "001_id17_seg01"
+            scene_id = self._extract_scene_id(sample_name)  # e.g., "001"
 
             # Filter by scene_ids if specified
             if self.scene_ids and scene_id not in self.scene_ids:
                 continue
 
-            # Find all video files in this scene
-            for video_file in sorted(scene_dir.glob("*.mp4")):
-                sample_name = video_file.stem  # e.g., "001_id17_seg01"
+            # Filter by sample_names if specified
+            if self.sample_names and sample_name not in self.sample_names:
+                continue
 
-                # Verify all cameras and control types exist
-                is_valid = True
-                for camera in self.camera_keys:
-                    ftheta_camera = self._get_ftheta_camera_name(camera)
+            # Verify all cameras and control types exist
+            is_valid = True
+            for camera in self.camera_keys:
+                ftheta_camera = self._get_ftheta_camera_name(camera)
 
-                    # Check video
-                    video_path = self.blur_path / "videos" / ftheta_camera / scene_name / f"{sample_name}.mp4"
-                    if not video_path.exists():
-                        is_valid = False
-                        break
+                # Check control inputs (flat structure)
+                blur_path = self.blur_path / "control_input_blur" / ftheta_camera / f"{sample_name}.mp4"
+                depth_path = self.depth_path / "control_input_depth" / ftheta_camera / f"{sample_name}.mp4"
+                hdmap_path = self.hdmap_path / "control_input_hdmap_bbox" / ftheta_camera / f"{sample_name}.mp4"
 
-                    # Check controls
-                    blur_path = self.blur_path / "control_input_blur" / ftheta_camera / scene_name / f"{sample_name}.mp4"
-                    depth_path = self.depth_path / "control_input_depth" / ftheta_camera / scene_name / f"{sample_name}.mp4"
-                    hdmap_path = self.hdmap_path / "control_input_hdmap_bbox" / ftheta_camera / scene_name / f"{sample_name}.mp4"
+                if not (blur_path.exists() and depth_path.exists() and hdmap_path.exists()):
+                    logger.debug(f"Missing files for {sample_name}, camera {camera}")
+                    is_valid = False
+                    break
 
-                    if not (blur_path.exists() and depth_path.exists() and hdmap_path.exists()):
-                        is_valid = False
-                        break
-
-                if is_valid:
-                    samples.append({
-                        "sample_id": f"{scene_name}/{sample_name}",
-                        "scene": scene_name,
-                        "name": sample_name,
-                    })
+            if is_valid:
+                samples.append({
+                    "sample_id": sample_name,
+                    "scene_id": scene_id,
+                    "name": sample_name,
+                })
 
         return samples
 
@@ -276,7 +298,6 @@ class NewTrajectoryDataset(Dataset):
 
     def __getitem__(self, index: int) -> Dict[str, Any]:
         sample_info = self.samples[index]
-        scene_name = sample_info["scene"]
         sample_name = sample_info["name"]
         sample_id = sample_info["sample_id"]
 
@@ -300,9 +321,9 @@ class NewTrajectoryDataset(Dataset):
         for camera_name in self.camera_keys:
             ftheta_camera = self._get_ftheta_camera_name(camera_name)
 
-            # Load caption (only from front_wide camera)
+            # Load caption (only from front_wide camera) - flat structure
             if camera_name == "camera_front_wide_120fov":
-                caption_path = self.blur_path / "captions" / ftheta_camera / scene_name / f"{sample_name}.json"
+                caption_path = self.blur_path / "captions" / ftheta_camera / f"{sample_name}.json"
                 caption = self._load_caption(caption_path)
             else:
                 caption = ""
@@ -311,31 +332,38 @@ class NewTrajectoryDataset(Dataset):
             caption = f"{MODEL_CAPTION_PREFIXES[camera_name]} {caption}"
             captions.append(caption)
 
-            # Load video
-            video_path = self.blur_path / "videos" / ftheta_camera / scene_name / f"{sample_name}.mp4"
-            video_bytes = self._load_video(video_path)
-            frames, fps, original_hw = self._extract_frames(video_bytes, frame_indices, self.resolution_hw)
-            multiview_frames.append(frames)
+            # Load video frames (flat structure: directly in camera folder)
+            video_path = self.blur_path / "videos" / ftheta_camera / f"{sample_name}.mp4"
+            if video_path.exists():
+                video_bytes = self._load_video(video_path)
+                video_frames, fps, original_hw = self._extract_frames(video_bytes, frame_indices, self.resolution_hw)
+                multiview_frames.append(video_frames)
+            else:
+                # Fallback: use blur frames as video frames
+                blur_path_video = self.blur_path / "control_input_blur" / ftheta_camera / f"{sample_name}.mp4"
+                video_bytes = self._load_video(blur_path_video)
+                video_frames, fps, original_hw = self._extract_frames(video_bytes, frame_indices, self.resolution_hw)
+                multiview_frames.append(video_frames)
+
+            # Load control inputs
+            # Blur - flat structure
+            blur_path = self.blur_path / "control_input_blur" / ftheta_camera / f"{sample_name}.mp4"
+            blur_bytes = self._load_video(blur_path)
+            blur_frames, _, _ = self._extract_frames(blur_bytes, frame_indices, self.resolution_hw)
+            multiview_control_blur.append(blur_frames)
 
             if video_fps is None:
                 video_fps = fps
             original_sizes.append(list(original_hw))
 
-            # Load control inputs
-            # Blur
-            blur_path = self.blur_path / "control_input_blur" / ftheta_camera / scene_name / f"{sample_name}.mp4"
-            blur_bytes = self._load_video(blur_path)
-            blur_frames, _, _ = self._extract_frames(blur_bytes, frame_indices, self.resolution_hw)
-            multiview_control_blur.append(blur_frames)
-
-            # Depth
-            depth_path = self.depth_path / "control_input_depth" / ftheta_camera / scene_name / f"{sample_name}.mp4"
+            # Depth - flat structure
+            depth_path = self.depth_path / "control_input_depth" / ftheta_camera / f"{sample_name}.mp4"
             depth_bytes = self._load_video(depth_path)
             depth_frames, _, _ = self._extract_frames(depth_bytes, frame_indices, self.resolution_hw)
             multiview_control_depth.append(depth_frames)
 
-            # HDMap
-            hdmap_path = self.hdmap_path / "control_input_hdmap_bbox" / ftheta_camera / scene_name / f"{sample_name}.mp4"
+            # HDMap - flat structure
+            hdmap_path = self.hdmap_path / "control_input_hdmap_bbox" / ftheta_camera / f"{sample_name}.mp4"
             hdmap_bytes = self._load_video(hdmap_path)
             hdmap_frames, _, _ = self._extract_frames(hdmap_bytes, frame_indices, self.resolution_hw)
             multiview_control_hdmap.append(hdmap_frames)
@@ -404,12 +432,15 @@ def parse_args():
     parser.add_argument("--experiment", type=str, default="custom_multi_control_post_train",
                         help="Experiment name")
     parser.add_argument("--output_dir", type=str,
-                        default="/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_new_trajectory",
+                        default="/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_new_trajectory_generation",
                         help="Output directory")
     parser.add_argument("--data_path", type=str, default=NEW_TRAJECTORY_BASE,
                         help="Path to new trajectory data")
     parser.add_argument("--scene_ids", type=str, nargs="+", default=None,
-                        help="Scene IDs to process (e.g., 001 003 004)")
+                        help="Scene IDs to process (e.g., 001 003 004). "
+                             "Matches samples starting with these prefixes.")
+    parser.add_argument("--sample_names", type=str, nargs="+", default=None,
+                        help="Specific sample names to process (e.g., 001_id13_seg01 002_id4_seg01)")
     parser.add_argument("--all_samples", action="store_true", default=False,
                         help="Process all samples")
     parser.add_argument("--sample_idx", type=int, default=None,
@@ -616,12 +647,13 @@ def main():
     camera_names = list(MODEL_CAMERAS[:num_views])
 
     logger.info("=" * 60)
-    logger.info("New Trajectory Inference")
+    logger.info("New Trajectory Inference (Generation)")
     logger.info("=" * 60)
     logger.info(f"Checkpoint: {args.ckpt_path}")
     logger.info(f"Data path: {args.data_path}")
     logger.info(f"Output dir: {args.output_dir}")
     logger.info(f"Scene IDs: {args.scene_ids or 'all'}")
+    logger.info(f"Sample names: {args.sample_names or 'all matching'}")
     logger.info(f"Context parallel size: {context_parallel_size}")
     logger.info(f"Views: {num_views} -> {camera_names}")
     logger.info(f"Guidance: {args.guidance}, Steps: {args.num_steps}")
@@ -646,6 +678,7 @@ def main():
             fps_downsample_factor=1,
             camera_keys=camera_names,
             scene_ids=args.scene_ids,
+            sample_names=args.sample_names,
         )
 
         logger.info(f"Dataset has {len(dataset)} samples")
