@@ -1,0 +1,115 @@
+%-------------------------------------------------------------
+\subsection*{R2V generation model}\label{sec:baseline}
+%-------------------------------------------------------------
+
+\textbf{Backbone.}
+We develop a multi-control video generation model for the R2V
+task, built on
+Cosmos-Transfer2.5~\cite{cosmos2025transfer,agarwal2025cosmos},
+a rectified-flow diffusion transformer (DiT) pre-trained for
+text- and control-conditioned driving video synthesis. In
+particular, we adopt the 2B \emph{Auto Multiview} variant
+(\texttt{nvidia/Cosmos-Transfer2.5-2B}), which generates
+29-frame $1280\!\times\!720$ clips at 10\,Hz across seven
+synchronised vehicle cameras. The backbone operates in the
+latent space of the Wan~2.1 video
+tokenizer~\cite{wan2pt1}, which compresses a
+$29\!\times\!720\!\times\!1280$ pixel clip to a latent of
+temporal length $T_{\mathrm{lat}}\!=\!8$ with a $4\!\times$
+temporal and $16\!\times\!16$ spatial compression ratio, and
+reconstructs pixel frames through its paired decoder. Text is
+encoded by Cosmos Reason1.1-7B~\cite{cosmos_reason} using the
+full-concat embedding strategy. Cross-view consistency over
+the seven surround-view cameras is provided by the multi-view
+variant of the DiT, which interleaves spatial, temporal and
+cross-view self-attention within every block and augments
+token positions with a camera-index
+embedding~\cite{cosmos2025transfer}.
+
+\textbf{Control-unit injection.}
+The three channels of the R2V control unit
+(Methods: \emph{R2V control unit}) are injected into the
+backbone through a VACE-style sidecar~\cite{jiang2025vace}.
+Each of the three condition videos is independently encoded
+by the frozen Wan~2.1 VAE to a 16-channel latent, and the
+three latents are concatenated along the channel dimension
+into a single 48-channel control latent,
+%
+\begin{equation}
+  \label{eq:ctrl_cat}
+  \mathbf{c}_{\mathrm{R2V}} =
+  \big[\,\mathbf{z}_{\mathrm{layout}}\,;\,\mathbf{z}_{\mathrm{photo}}\,;\,\mathbf{z}_{\mathrm{geo}}\,\big]
+  \in \mathbb{R}^{48\times V T_{\mathrm{lat}}\times H'\times W'},
+\end{equation}
+%
+where $V\!=\!7$ denotes the number of surround-view cameras,
+$T_{\mathrm{lat}}\!=\!8$ the latent temporal length, and
+$H'\!=\!45$, $W'\!=\!80$ the spatial dimensions of the latent
+tensor for a $1280\!\times\!720$ pixel input; the layout,
+photometric and geometric latents occupy channels 0--15,
+16--31 and 32--47, respectively. A \emph{control embedder}
+patchifies $\mathbf{c}_{\mathrm{R2V}}$ into tokens whose
+length matches that of the DiT token stream, and an optional
+\emph{input hint block} refines the embedded tokens with a
+per-frame multilayer perceptron. The tokens are then
+processed by a stack of lightweight \emph{control
+blocks}---each sharing the attention and feed-forward
+structure of a base DiT block---inserted at every seventh
+layer of the backbone (layer indices $\{0,7,14,\ldots\}$).
+Every control block contributes an additive residual
+modulation to its companion base block through
+zero-initialised linear projections, so that at
+initialisation the backbone output is identical to the
+unconditioned one and the control pathway is learnt purely
+from subsequent gradient updates. Aside from the
+channel-count adjustment of the control embedder, no
+architectural modification is introduced relative to the
+public Cosmos-Transfer2.5 release.
+
+\textbf{Channel assignment and weight reuse.}
+The channel ordering of the R2V control unit is deliberate.
+The publicly released Cosmos-Transfer2.5-2B Auto Multiview
+checkpoint was trained with a single control modality
+(\texttt{hdmap\_bbox})~\cite{cosmos2025transfer} that
+occupies the first 16 channels of its control embedder. By
+assigning the layout channel---whose pixel statistics (solid
+polygons of categorical colours) most closely match the
+\texttt{hdmap\_bbox} prior---to those 16 channels, we inherit
+the pre-trained weights and amortise the cost of learning a
+semantic-layout control pathway from scratch. The remaining
+32 channels, which encode the photometric and geometric
+signals, are initialised randomly and specialised on our
+dataset during post-training. The unified interface avoids
+instantiating three parallel ControlNet branches and, by
+construction, allows the three complementary signals to be
+attended to jointly within every control block.
+
+\textbf{Text conditioning.}
+Because the dataset is collected at a fixed intersection,
+clip-level narration carries little information beyond what
+the R2V control unit already encodes, while dense captions
+risk overfitting the model to templated surface forms. We
+therefore adopt a structured scene-level prompt composed of
+(i) a view-identifier phrase (e.g.\ ``Front wide view.''),
+(ii) an ego-motion direction phrase derived from the recorded
+trajectory (e.g.\ ``The ego vehicle is travelling from west
+to east.''), and (iii) a fixed intersection description
+covering the geographic and seasonal context, road
+infrastructure and typical traffic participants. This
+decomposition delegates dynamic information to the control
+unit and static scene context to the text prompt. During
+training the prompt is dropped with probability 0.2 to enable
+classifier-free guidance at inference time.
+
+\textbf{Trainable parameters.}
+Following the context-adapter tuning strategy of
+VACE~\cite{jiang2025vace}, the entire pre-trained backbone is
+kept frozen and only the control embedder, the control blocks
+and the input hint block receive gradients during
+post-training. Trainable parameters account for
+$3.29\!\times\!10^{8}$ ($13.8\%$) of the
+$2.39\!\times\!10^{9}$ parameters of the base network,
+concentrated in the control blocks ($2.98\!\times\!10^{8}$;
+$90.6\%$ of trainable parameters), with the input hint block
+($2.94\!\times\!10^{7}$; $8.9\%$) and the control embedder
+($1.6\!\times\!10^{6}$; $0.5\%$) contributing the remainder.

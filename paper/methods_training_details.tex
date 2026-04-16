@@ -1,0 +1,38 @@
+%-------------------------------------------------------------
+\subsection*{Training details}\label{sec:training}
+%-------------------------------------------------------------
+
+\textbf{Data split.}
+The 86 scenes in \datasetname{} are partitioned into 68
+training scenes and 18 held-out test scenes (an 80/20 split),
+sampled uniformly across the four driving directions to avoid
+directional bias. Each training unit comprises seven
+synchronised 29-frame videos at $1280\!\times\!720$, one per
+vehicle camera, paired with the R2V control unit and a
+structured text prompt (Methods: \emph{R2V control unit,
+R2V generation model}).
+
+\textbf{Optimisation.}
+We post-train the control pathway with the rectified-flow
+velocity-matching
+objective~\cite{liu2023rectifiedflow,agarwal2025cosmos},
+using a logit-normal time-step distribution and a shift of 5.
+Optimisation uses FusedAdamW~\cite{loshchilov2019adamw} with
+$\beta\!=\!(0.9,\,0.999)$, weight decay $10^{-3}$, and a peak
+learning rate of $1\!\times\!10^{-4}$ that is cosine-annealed
+after a 100-step linear warm-up. Gradients are clipped to an
+$\ell_2$-norm of $0.1$. The model is trained for 7{,}000
+iterations, at which point the rectified-flow loss on the
+held-out test scenes has plateaued.
+
+\textbf{Hardware and parallelism.}
+Training is distributed over 8 NVIDIA A100 GPUs. The backbone
+parameters are sharded across the 8 ranks using fully sharded
+data parallelism (FSDP), while the token stream of each
+seven-view clip is split across the same 8 ranks along the
+view/time axis through context parallelism. Gradients are
+accumulated over 4 micro-steps, yielding an effective batch
+size of 4 seven-view clips per optimiser step.
+Mixed-precision training follows the Wan~2.1
+fp32-accumulation strategy to stabilise the rectified-flow
+loss under bf16 activation precision.

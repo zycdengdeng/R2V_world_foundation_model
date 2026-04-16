@@ -1,0 +1,198 @@
+%-------------------------------------------------------------
+\subsection*{R2V control unit}\label{sec:condition_signal}
+%-------------------------------------------------------------
+
+Given the extreme viewpoint disparity between the fixed,
+elevated roadside sensors and the moving, ground-level vehicle
+cameras, we bridge the two platforms through a single
+multi-channel conditioning tensor, which we refer to as the
+\emph{R2V control unit}. The unit stacks three physically
+complementary channels derived from roadside sensor data---a
+\emph{photometric channel} that transfers appearance evidence,
+a \emph{geometric channel} that enforces metric scale, and a
+\emph{layout channel} that carries instance-level
+semantics---into a single tensor that serves as the sole
+dynamic conditioning signal throughout vehicle-side
+generation. All three channels are obtained from the same
+cross-platform projection pipeline, so that they are
+spatially co-registered to the target vehicle camera at every
+frame.
+
+\textbf{Cross-platform projection pipeline.}
+Underlying all three channels is a chain of rigid transforms
+that links the static roadside frame to the moving
+ego-vehicle frame. By combining the static roadside-to-world
+extrinsic $T_{wr}$ (Table~\ref{tab:lidar_calib}) with the
+time-varying ego-vehicle pose $T_{vw}(t)$
+(Eq.~\eqref{eq:Tvw}), any point $\mathbf{p}_r$ in the merged
+roadside LiDAR scan is mapped to the ego-vehicle coordinate
+system at the matching cooperative timestamp, formulated as
+%
+\begin{equation}
+  \label{eq:chain}
+  \mathbf{p}_v = T_{vr}(t)\,\mathbf{p}_r,
+  \qquad T_{vr}(t) = T_{vw}(t)\,T_{wr}.
+\end{equation}
+%
+Given $\mathbf{p}_v$, projection onto each of the seven
+surround-view cameras $i\in\{1,\ldots,7\}$ then proceeds in
+two steps. The point is first expressed in the coordinate
+system of the $i$-th vehicle camera via its static extrinsic
+$T_{c_v v}^{(i)}$, written as
+%
+\begin{equation}
+  \label{eq:cam}
+  \mathbf{p}_{c_v}^{(i)} = T_{c_v v}^{(i)}\,\mathbf{p}_v.
+\end{equation}
+%
+Writing $\mathbf{p}_{c_v}^{(i)} = (x_c, y_c, z_c)^\top$, the
+normalised pinhole coordinates are
+$(\tilde{x},\tilde{y})=(x_c/z_c,\,y_c/z_c)$. The plumb-bob
+model then corrects for the non-negligible radial and
+tangential lens distortion of the vehicle cameras as
+%
+\begin{equation}
+  \label{eq:distort}
+  \begin{bmatrix}x_d\\y_d\end{bmatrix}
+  = \bigl(1+k_1r^2+k_2r^4+k_3r^6\bigr)
+    \begin{bmatrix}\tilde{x}\\\tilde{y}\end{bmatrix}
+  + \begin{bmatrix}
+      2p_1\tilde{x}\tilde{y}+p_2(r^2+2\tilde{x}^2)\\
+      p_1(r^2+2\tilde{y}^2)+2p_2\tilde{x}\tilde{y}
+    \end{bmatrix},
+\end{equation}
+%
+where $r^2=\tilde{x}^2+\tilde{y}^2$ and
+$(k_1, k_2, k_3, p_1, p_2)$ are the per-camera distortion
+coefficients. The distortion-corrected coordinates are
+finally mapped to pixel coordinates by the intrinsic matrix,
+%
+\begin{equation}
+  \label{eq:pixel}
+  \begin{bmatrix}u\\v\end{bmatrix}^{\!(i)}
+  = \begin{bmatrix}f_x^{(i)}&0&c_x^{(i)}\\0&f_y^{(i)}&c_y^{(i)}\end{bmatrix}
+    \begin{bmatrix}x_d\\y_d\\1\end{bmatrix},
+\end{equation}
+%
+where $(f_x^{(i)},\,f_y^{(i)})$ and $(c_x^{(i)},\,c_y^{(i)})$
+denote the focal lengths and principal-point offsets of the
+$i$-th vehicle camera as defined in Eq.~\eqref{eq:intrinsic}.
+For brevity we encapsulate this end-to-end spatial-to-pixel
+mapping as $\pi^{(i)}(\mathbf{p}_r)$, and define analogous
+mappings $\pi_r^{(j)}(\cdot)$ for each of the four roadside
+pinhole cameras $j\in\{1,\ldots,4\}$ by substituting the
+corresponding roadside extrinsics and intrinsics.
+
+\textbf{Photometric channel.}
+Synthesising a photorealistic driving scene requires more
+than a discrete layout of objects; the generator must also
+recover global context such as ambient illumination,
+road-surface textures, and background architecture. We
+capture this low-frequency appearance prior by colouring each
+roadside point $\mathbf{p}_r$ with the mean RGB value sampled
+from the roadside pinhole cameras that observe it,
+%
+\begin{equation}
+  \label{eq:blur}
+  c(\mathbf{p}_r) = \frac{1}{|\mathcal{J}(\mathbf{p}_r)|}
+  \sum_{j \in \mathcal{J}(\mathbf{p}_r)}
+  \mathbf{I}_r^{(j)}\!\left(\pi_r^{(j)}(\mathbf{p}_r)\right),
+  \qquad
+  \mathcal{J}(\mathbf{p}_r) = \{j : \pi_r^{(j)}(\mathbf{p}_r) \in \Omega_j\},
+\end{equation}
+%
+where $\mathbf{I}_r^{(j)}$ denotes the $j$-th roadside image,
+$\Omega_j$ its valid pixel domain, and
+$\mathcal{J}(\mathbf{p}_r)$ the set of roadside cameras whose
+projection of $\mathbf{p}_r$ falls inside that domain. The
+coloured points are then projected onto each vehicle camera
+via $\pi^{(i)}$, yielding a sparse scatter image whose
+non-empty pixels encode the illumination and structural
+layout observed from the infrastructure. A pixel is left
+black when no roadside point projects onto it, or when the
+projecting point itself was not observed by any roadside
+pinhole camera ($\mathcal{J}(\mathbf{p}_r)=\varnothing$).
+Such sparsity is retained deliberately: it conveys the true
+field-of-view limits of the roadside array to the generator,
+rather than imputing a potentially misleading prior.
+
+\textbf{Geometric channel.}
+Without an explicit metric signal, the generator is free to
+hallucinate physically implausible scale relationships or to
+violate three-dimensional consistency across the seven
+vehicle cameras. We supply such a signal as a sparse depth
+image, in which, for every pixel, a depth buffer retains the
+smallest camera-axis depth among all roadside points that
+project to that pixel, given by
+%
+\begin{equation}
+  \label{eq:depth}
+  D^{(i)}(u,v) =
+  \min_{\mathbf{p}_r:\,\pi^{(i)}(\mathbf{p}_r)=(u,v)}
+  \bigl[\mathbf{p}_{c_v}^{(i)}\bigr]_{z_c},
+\end{equation}
+%
+where the minimum is taken over all roadside points
+$\mathbf{p}_r$ whose projection under $\pi^{(i)}$ coincides
+with pixel $(u,v)$, and $[\cdot]_{z_c}$ denotes the
+component along the $z$-axis of the $i$-th vehicle camera.
+Raw depth values are retained to preserve the physical
+metric scale; a per-frame min--max normalisation
+(near$=$white, far$=$black) is additionally recorded for
+visualisation. By supplying the three-dimensional scene
+topology from the target viewpoint, the geometric channel
+grounds 2D pixel synthesis in the underlying scene geometry.
+
+\textbf{Layout channel.}
+The elevated, multi-pole roadside infrastructure provides
+near-complete coverage of the intersection, enabling the
+annotation of every dynamic traffic participant in a single
+merged scan---a level of observability unattainable from the
+ego-vehicle alone. Projecting these complete annotations into
+the vehicle-camera frame reconstructs the full traffic flow
+at the intersection, which is a central objective of the R2V
+task. Each roadside 3D annotation is parameterised by centre
+$\mathbf{c}^R$, half-extents $(l,w,h)$ and yaw $\psi$; its
+eight corners are given by
+%
+\begin{equation}
+  \label{eq:corners}
+  \mathbf{v}_k^R = \mathbf{c}^R
+  + R_\psi\,[\pm l,\,\pm w,\,\pm h]^\top_k,
+  \qquad k=1,\ldots,8,
+\end{equation}
+%
+where $R_\psi\!\in\!SO(3)$ is the yaw rotation matrix and
+$[\pm l,\pm w,\pm h]^\top_k$ enumerates the eight sign
+combinations of the box half-extents. These corners are
+mapped to the ego-vehicle frame via Eq.~\eqref{eq:chain} and
+then to the image plane via $\pi^{(i)}$. Rendering proceeds
+by drawing each box as a solid filled polygon with a
+category-specific colour, with correct occlusion handled by
+backface culling and a painter's-algorithm depth sort. The
+resulting image constitutes an explicit semantic layout of
+all annotated traffic participants within the ego-vehicle's
+field of view.
+
+\textbf{Temporal segmentation and training units.}
+With the three channels defined at every cooperative frame,
+the 86 scenes are segmented into training units. Each
+cooperative sequence is divided into non-overlapping 29-frame
+clips at 10\,Hz that centre on the vehicle's traversal of the
+intersection. The clip length is determined by the temporal
+compression ratio of the Wan~2.1 video
+tokenizer~\cite{wan2pt1}: with a latent temporal resolution
+$T_{\mathrm{lat}}\!=\!8$ and a $4\!\times$ temporal
+compression, a pixel clip of length
+$T_{\mathrm{pix}}=4(T_{\mathrm{lat}}-1)+1=29$ is the shortest
+window that maps onto a full-resolution latent tensor. Raw
+vehicle-camera frames are downsampled to $1280\!\times\!720$
+to match the backbone resolution. For each of the seven
+vehicle cameras, every clip yields a synchronised training
+triplet consisting of one ground-truth RGB video, one R2V
+control unit video formed by stacking the photometric,
+geometric and layout channels, and one structured text prompt
+describing the scene context and driving direction.
+Collectively, these triplets constitute the post-training
+data used in the generation model (see \emph{R2V generation
+model}).
