@@ -14,6 +14,7 @@ from cosmos_transfer2.experiments.custom.roadside_multi_control_dataset import (
 # Import experiments to trigger registration
 from cosmos_transfer2.experiments.custom import custom_multi_control_experiment
 from cosmos_transfer2.experiments.custom import dense_multi_control_experiment
+from cosmos_transfer2.experiments.custom import ablation_single_view_experiment
 
 __all__ = [
     "MultiControlMultiviewDataset",
@@ -21,4 +22,5 @@ __all__ = [
     "collate_fn",
     "custom_multi_control_experiment",
     "dense_multi_control_experiment",
+    "ablation_single_view_experiment",
 ]
