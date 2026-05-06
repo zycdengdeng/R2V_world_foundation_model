@@ -19,7 +19,7 @@ set -e
 # ============================================================================
 
 # Output directory (inside main output folder)
-export IMAGINAIRE_OUTPUT_ROOT="/mnt/zihanw/Output_R2V_world_foundation_model_v1/ablation"
+export IMAGINAIRE_OUTPUT_ROOT="/mnt/zihanw/Output_R2V_world_foundation_model_v1/ablation_all"
 
 # HuggingFace configuration
 export HF_HOME="/mnt/zihanw/.cache/huggingface"
@@ -146,4 +146,3 @@ echo "All experiments completed!"
 echo "=============================================="
 echo ""
 echo "Results saved to: ${IMAGINAIRE_OUTPUT_ROOT}/cosmos_ablation/single_view/"
-echo "(i.e., /mnt/zihanw/Output_R2V_world_foundation_model_v1/ablation/cosmos_ablation/single_view/)"

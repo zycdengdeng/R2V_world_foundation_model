@@ -53,7 +53,7 @@ BLUR_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_
 DEPTH_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/DepthSparse"
 HDMAP_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/HDMapBbox"
 
-OUTPUT_DIR = "/mnt/zihanw/Output_R2V_world_foundation_model_v1/ablation"
+OUTPUT_DIR = "/mnt/zihanw/Output_R2V_world_foundation_model_v1/ablation_all"
 
 TEST_SCENE_IDS = ["031", "033", "053", "056", "076", "077", "088", "089"]
 TRAIN_SCENE_IDS = [
