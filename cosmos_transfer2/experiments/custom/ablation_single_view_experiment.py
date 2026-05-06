@@ -53,7 +53,7 @@ BLUR_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_
 DEPTH_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/DepthSparse"
 HDMAP_DATASET_DIR = "/mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/HDMapBbox"
 
-OUTPUT_DIR = "/mnt/zihanw/Output_R2V_ablation"
+OUTPUT_DIR = "/mnt/zihanw/Output_R2V_world_foundation_model_v1/ablation"
 
 TEST_SCENE_IDS = ["031", "033", "053", "056", "076", "077", "088", "089"]
 TRAIN_SCENE_IDS = [
@@ -225,7 +225,7 @@ def create_ablation_experiment(
             name=f"ablation_{experiment_name}_{RUN_TIMESTAMP}",
         ),
         checkpoint=dict(
-            save_iter=500,
+            save_iter=1000,
             load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
             load_training_state=False,
             strict_resume=False,
