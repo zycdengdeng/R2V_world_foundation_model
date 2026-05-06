@@ -271,14 +271,16 @@ def load_sample_with_ablation(
             else:
                 batch[key] = value.to(**model.tensor_kwargs)
 
-    # ABLATION: Set disabled control inputs to None
-    # The model will automatically replace None with zero tensors
+    # ABLATION: Replace disabled control inputs with ZERO tensors (not None!)
+    # Setting to None causes AttributeError in conditioner's random_dropout_input
+    # Zero tensors are properly processed but provide no control signal
     disabled_controls = VALID_CONTROL_HEADS - enabled_controls
     for ctrl_name in disabled_controls:
         batch_key = CONTROL_KEY_MAPPING[ctrl_name]
-        if batch_key in batch:
-            logger.info(f"  Disabling control: {ctrl_name} ({batch_key})")
-            batch[batch_key] = None
+        if batch_key in batch and batch[batch_key] is not None:
+            original_tensor = batch[batch_key]
+            batch[batch_key] = torch.zeros_like(original_tensor)
+            logger.info(f"  Disabling control: {ctrl_name} ({batch_key}) -> zeroed out")
 
     enabled_str = ", ".join(sorted(enabled_controls))
     logger.info(f"Loaded sample {sample_idx}: {sample['__key__']} with controls: [{enabled_str}]")
