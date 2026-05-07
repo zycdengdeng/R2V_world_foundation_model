@@ -123,7 +123,7 @@ gpu_id=0
 for exp_config in "${EXPERIMENTS[@]}"; do
     IFS=':' read -r exp_name ckpt_folder <<< "$exp_config"
     run_inference "$exp_name" "$ckpt_folder" "$gpu_id"
-    ((gpu_id++))
+    gpu_id=$((gpu_id + 1))
 done
 
 echo ""
