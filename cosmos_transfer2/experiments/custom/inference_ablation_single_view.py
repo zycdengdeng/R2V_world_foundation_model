@@ -183,6 +183,9 @@ def load_sample(test_dataset, sample_idx: int, model) -> Dict[str, Any]:
     from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
 
     uint8_keys = {'video', 'control_input_blur', 'control_input_depth', 'control_input_hdmap_bbox'}
+    # Index tensors must stay as int64/long (not converted to bfloat16)
+    index_keys = {'front_cam_view_idx_sample_position', 'ref_cam_view_idx_sample_position',
+                  'latent_view_indices_B_T', 'view_indices_B_T'}
 
     sample = test_dataset[sample_idx]
     batch = collate_fn([sample])
@@ -190,6 +193,9 @@ def load_sample(test_dataset, sample_idx: int, model) -> Dict[str, Any]:
     for key, value in batch.items():
         if isinstance(value, torch.Tensor):
             if key in uint8_keys:
+                batch[key] = value.to(device=torch.device("cuda"))
+            elif key in index_keys:
+                # Index tensors: move to device but keep dtype as int64
                 batch[key] = value.to(device=torch.device("cuda"))
             else:
                 batch[key] = value.to(**model.tensor_kwargs)
