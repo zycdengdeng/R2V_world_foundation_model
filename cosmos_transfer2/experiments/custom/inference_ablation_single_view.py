@@ -68,7 +68,10 @@ def init_distributed():
     """Initialize for single GPU (no distributed)."""
     if not dist.is_initialized():
         os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "29500"
+        # Use a random port to avoid conflicts when running multiple experiments
+        import random
+        port = random.randint(29500, 29999)
+        os.environ["MASTER_PORT"] = str(port)
         os.environ["RANK"] = "0"
         os.environ["WORLD_SIZE"] = "1"
         dist.init_process_group(backend="gloo", rank=0, world_size=1)
