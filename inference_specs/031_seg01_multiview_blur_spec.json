@@ -1,0 +1,35 @@
+{
+  "name": "031_seg01",
+  "prompt": "A driving scene captured from a multi-camera rig mounted on a vehicle. The video shows a road with surrounding environment, buildings, trees, vehicles and sky.",
+  "cameras": {
+    "front_wide": {
+      "video_path": "/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_test_evaluation/031_seg01/front_wide_120fov_generated.mp4"
+    },
+    "cross_left": {
+      "video_path": "/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_test_evaluation/031_seg01/cross_left_120fov_generated.mp4"
+    },
+    "cross_right": {
+      "video_path": "/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_test_evaluation/031_seg01/cross_right_120fov_generated.mp4"
+    },
+    "rear_left": {
+      "video_path": "/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_test_evaluation/031_seg01/rear_left_70fov_generated.mp4"
+    },
+    "rear_right": {
+      "video_path": "/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_test_evaluation/031_seg01/rear_right_70fov_generated.mp4"
+    },
+    "front_tele": {
+      "video_path": "/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_test_evaluation/031_seg01/front_tele_30fov_generated.mp4"
+    },
+    "rear_tele": {
+      "video_path": "/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_test_evaluation/031_seg01/rear_tele_30fov_generated.mp4"
+    }
+  },
+  "blur": {
+    "control_weight": 1.0,
+    "preset_blur_strength": "medium"
+  },
+  "num_conditional_frames": 1,
+  "guidance": 3,
+  "num_steps": 35,
+  "seed": 2025
+}
