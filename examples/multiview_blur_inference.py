@@ -117,11 +117,14 @@ class MultiViewBlurSpec(pydantic.BaseModel):
 
     @classmethod
     def from_file(cls, path: Path) -> "MultiViewBlurSpec":
-        # Resolve any relative paths inside the spec relative to the spec file.
+        # Read the file BEFORE chdir, since `path` may itself be relative to
+        # the original cwd. The chdir is only used so that relative paths
+        # inside the spec resolve relative to the spec file.
+        raw = json.loads(path.read_text())
         cwd = os.getcwd()
         os.chdir(path.parent)
         try:
-            return cls.model_validate(json.loads(path.read_text()))
+            return cls.model_validate(raw)
         finally:
             os.chdir(cwd)
 
