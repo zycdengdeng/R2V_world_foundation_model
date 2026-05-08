@@ -1,0 +1,35 @@
+{
+  "name": "multiview_blur_example",
+  "prompt": "A driving scene captured from cameras mounted on a car at night. Headlights illuminate a wet road, with surrounding buildings, trees and traffic visible across all camera views.",
+  "cameras": {
+    "front_wide": {
+      "video_path": "input_videos/night_front_wide_120fov.mp4"
+    },
+    "cross_left": {
+      "video_path": "input_videos/night_cross_left_120fov.mp4"
+    },
+    "cross_right": {
+      "video_path": "input_videos/night_cross_right_120fov.mp4"
+    },
+    "rear_left": {
+      "video_path": "input_videos/night_rear_left_70fov.mp4"
+    },
+    "rear_right": {
+      "video_path": "input_videos/night_rear_right_70fov.mp4"
+    },
+    "rear": {
+      "video_path": "input_videos/night_rear_30fov.mp4"
+    },
+    "front_tele": {
+      "video_path": "input_videos/night_front_tele_30fov.mp4"
+    }
+  },
+  "blur": {
+    "control_weight": 1.0,
+    "preset_blur_strength": "medium"
+  },
+  "num_conditional_frames": 1,
+  "guidance": 3,
+  "num_steps": 35,
+  "seed": 2025
+}
