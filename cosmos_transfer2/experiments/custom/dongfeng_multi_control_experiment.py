@@ -50,6 +50,7 @@ from cosmos_transfer2.experiments.custom.dongfeng_multi_control_dataset import (
     extract_dongfeng_scene_id,
 )
 from cosmos_transfer2.experiments.custom.test_loss_callback import EveryNTestLoss
+from cosmos_transfer2.experiments.custom.text_embedding_cache_callback import CacheTextEmbeddings
 
 # Official Transfer2.5 multiview checkpoint (pre-trained hdmap_bbox control head)
 TRANSFER2_MULTIVIEW_CHECKPOINT = get_checkpoint_by_uuid("4ecc66e9-df19-4aed-9802-0d11e057287a")
@@ -198,6 +199,9 @@ def register_dongfeng_dataloader() -> None:
 def _build_trainer_callbacks() -> dict:
     callbacks = dict(
         heart_beat=dict(save_s3=False),
+        # Captions are (near-)identical across the dataset; skip redundant 7B
+        # text-encoder forwards by caching embeddings per caption set.
+        cache_text_embeddings=L(CacheTextEmbeddings)(store_on_gpu=False),
         iter_speed=dict(hit_thres=100, every_n=100, save_s3=False),
         device_monitor=dict(save_s3=False),
         grad_clip=dict(clip_norm=0.1),
@@ -321,7 +325,7 @@ dongfeng_multi_control_post_train = dict(
     ),
     trainer=dict(
         logging_iter=50,
-        grad_accum_iter=4,
+        grad_accum_iter=2,
         max_iter=8000,
         callbacks=_build_trainer_callbacks(),
     ),
