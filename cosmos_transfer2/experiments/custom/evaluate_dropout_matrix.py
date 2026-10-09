@@ -5,20 +5,24 @@
 Folder-vs-folder evaluation of the modality-dropout inference matrix.
 
 Compares each setting's generated videos against ground-truth videos and
-reports paired PSNR / SSIM / LPIPS plus distribution-level FID / FVD.
+reports paired PSNR / SSIM / LPIPS plus distribution-level FID / FVD,
+per-seg aggregates, and a visualization-pick ranking.
 
 Expected layout per setting directory (output of inference*.py):
     {setting_dir}/{sample_id}/{camera_short}_generated.mp4
 
-Usage (single GPU is enough):
+Single-GPU usage:
     CUDA_VISIBLE_DEVICES=0 python3 -m cosmos_transfer2.experiments.custom.evaluate_dropout_matrix \
-        --gt_videos_root /mnt/zihanw/proj_utils_pro/transfer_video_maker/output_full_data/BlurProjection/videos \
-        --results full=/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference \
-                  no_hdmap=/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_dropout/no_hdmap \
-                  no_blur=/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_dropout/no_blur \
-                  no_depth=/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_dropout/no_depth \
-                  no_control=/mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_dropout/no_control \
-        --output_csv /mnt/zihanw/Output_R2V_world_foundation_model_v1/inference_dropout/metrics.csv
+        --gt_videos_root .../BlurProjection/videos \
+        --results full=.../inference no_hdmap=.../inference_dropout/no_hdmap ... \
+        --output_csv .../inference_dropout/metrics.csv
+
+Multi-GPU usage (shard by samples, then merge):
+    bash scripts/run_eval_matrix_8gpu.sh     # launches 8 shards + merge
+Or manually:
+    CUDA_VISIBLE_DEVICES=$i python3 -m ...evaluate_dropout_matrix ... \
+        --num_shards 8 --shard_idx $i        # for i in 0..7, in parallel
+    python3 -m ...evaluate_dropout_matrix ... --merge_shards
 """
 
 import argparse
@@ -28,7 +32,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 from loguru import logger
@@ -70,7 +73,18 @@ def parse_args():
     p.add_argument("--lpips_size", type=int, default=256,
                    help="Frames are resized to this square size for LPIPS only")
     p.add_argument("--frame_batch", type=int, default=8)
+    # Sharded execution
+    p.add_argument("--num_shards", type=int, default=1,
+                   help=">1: process only this process's share of samples and save a shard file")
+    p.add_argument("--shard_idx", type=int, default=0)
+    p.add_argument("--merge_shards", action="store_true", default=False,
+                   help="Load all shard files next to --output_csv and produce the final report")
     return p.parse_args()
+
+
+def shard_path(output_csv: str, shard_idx: int) -> Path:
+    out = Path(output_csv)
+    return out.with_name(out.stem + f"_shard{shard_idx}.pt")
 
 
 def load_video_frames(path: Path, num_frames: int) -> torch.Tensor:
@@ -97,29 +111,10 @@ def extract_fvd_features(fvd: FVDCalculator, video_T_C_H_W: torch.Tensor, device
     return fvd.i3d((v - mean) / std)
 
 
-def main():
-    args = parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    settings = {}
-    for spec in args.results:
-        name, _, path = spec.partition("=")
-        if not path:
-            raise ValueError(f"--results entries must be name=path, got: {spec}")
-        settings[name] = Path(path)
-    gt_root = Path(args.gt_videos_root)
+def compute(args, settings, samples, device):
+    """Compute paired metrics and FID/FVD features for the given samples."""
     cameras = CAMERAS[:args.num_views]
-
-    # Samples = intersection of per-setting sample dirs
-    sample_sets = []
-    for name, d in settings.items():
-        if not d.exists():
-            raise FileNotFoundError(f"Results dir for '{name}' not found: {d}")
-        sample_sets.append({p.name for p in d.iterdir() if p.is_dir()})
-    samples = sorted(set.intersection(*sample_sets))
-    if not samples:
-        raise ValueError("No common sample directories across settings")
-    logger.info(f"Settings: {list(settings)} | {len(samples)} common samples | {len(cameras)} views")
+    gt_root = Path(args.gt_videos_root)
 
     lpips_model = None
     if LPIPS_AVAILABLE:
@@ -130,9 +125,8 @@ def main():
     fid = FIDCalculator(device)
     fvd = FVDCalculator(device)
 
-    per_pair = defaultdict(list)       # (setting, metric) -> per (sample,view) values
     per_sample_rows = []
-    fid_feats = defaultdict(list)      # setting -> inception features; "GT" for real
+    fid_feats = defaultdict(list)
     fvd_feats = defaultdict(list)
 
     for si, sample in enumerate(samples):
@@ -144,7 +138,8 @@ def main():
                 continue
             gt = load_video_frames(gt_path, NUM_FRAMES)
 
-            gt_dev_cache = None
+            gt_feat_done = False
+            gt_t = None
             for name, d in settings.items():
                 gen_path = d / sample / f"{cam_short}_generated.mp4"
                 if not gen_path.exists():
@@ -170,60 +165,65 @@ def main():
                                            mode="bilinear", align_corners=False)
                         with torch.no_grad():
                             lpips_vals.append(lpips_model(rs * 2 - 1, gs * 2 - 1).mean().item())
-                    # FID features (generated; GT once per pair)
                     with torch.no_grad():
                         fid_feats[name].append(fid.extract_features(g).cpu())
-                        if gt_dev_cache is None:
+                        if not gt_feat_done:
                             fid_feats["GT"].append(fid.extract_features(r).cpu())
-                gt_dev_cache = True
+                gt_feat_done = True
 
-                row = {
+                per_sample_rows.append({
                     "setting": name, "sample": sample, "camera": cam_short,
                     "psnr": float(np.mean(psnr_vals)),
                     "ssim": float(np.mean(ssim_vals)),
                     "lpips": float(np.mean(lpips_vals)) if lpips_vals else float("nan"),
-                }
-                per_sample_rows.append(row)
-                for m in ("psnr", "ssim", "lpips"):
-                    per_pair[(name, m)].append(row[m])
-
+                })
                 fvd_feats[name].append(extract_fvd_features(fvd, gen_t, device).cpu())
-            fvd_feats["GT"].append(extract_fvd_features(fvd, gt_t, device).cpu())
+            if gt_t is not None:
+                fvd_feats["GT"].append(extract_fvd_features(fvd, gt_t, device).cpu())
 
-        logger.info(f"[{si + 1}/{len(samples)}] {sample} done")
+        logger.info(f"[shard {args.shard_idx}] [{si + 1}/{len(samples)}] {sample} done")
 
-    # Distribution metrics
-    gt_fid_feat = torch.cat(fid_feats.pop("GT"), dim=0)
-    gt_fvd_feat = torch.cat(fvd_feats.pop("GT"), dim=0)
+    fid_cat = {k: torch.cat(v, dim=0) for k, v in fid_feats.items()}
+    fvd_cat = {k: torch.cat(v, dim=0) for k, v in fvd_feats.items()}
+    return per_sample_rows, fid_cat, fvd_cat
+
+
+def report(args, setting_names, per_sample_rows, fid_cat, fvd_cat, device):
+    """Final tables, rankings, and CSV outputs."""
+    per_pair = defaultdict(list)
+    for row in per_sample_rows:
+        for m in ("psnr", "ssim", "lpips"):
+            per_pair[(row["setting"], m)].append(row[m])
+    samples = sorted({r["sample"] for r in per_sample_rows})
+
+    fid = FIDCalculator(device)
+    fvd = FVDCalculator(device)
+    gt_fid_feat = fid_cat.pop("GT")
+    gt_fvd_feat = fvd_cat.pop("GT")
     dist_metrics = {}
-    for name in settings:
-        f_fid = torch.cat(fid_feats[name], dim=0)
-        f_fvd = torch.cat(fvd_feats[name], dim=0)
+    for name in setting_names:
         dist_metrics[name] = {
-            "fid": fid.calculate_fid(gt_fid_feat, f_fid),
-            "fvd": fvd.calculate_fvd(gt_fvd_feat, f_fvd),
+            "fid": fid.calculate_fid(gt_fid_feat, fid_cat[name]),
+            "fvd": fvd.calculate_fvd(gt_fvd_feat, fvd_cat[name]),
         }
 
-    # Report
     header = f"{'setting':<12} {'PSNR↑':>8} {'SSIM↑':>8} {'LPIPS↓':>8} {'FID↓':>8} {'FVD↓':>10}"
     logger.info("=" * len(header))
     logger.info(header)
     logger.info("-" * len(header))
     summary_rows = []
-    for name in settings:
+    for name in setting_names:
         p = np.mean(per_pair[(name, "psnr")])
         s = np.mean(per_pair[(name, "ssim")])
         l = np.nanmean(per_pair[(name, "lpips")])
-        row = dict(setting=name, psnr=p, ssim=s, lpips=l, **dist_metrics[name])
-        summary_rows.append(row)
+        summary_rows.append(dict(setting=name, psnr=p, ssim=s, lpips=l, **dist_metrics[name]))
         logger.info(f"{name:<12} {p:>8.3f} {s:>8.4f} {l:>8.4f} "
                     f"{dist_metrics[name]['fid']:>8.2f} {dist_metrics[name]['fvd']:>10.2f}")
     logger.info("=" * len(header))
 
-    # Paired deltas and win counts vs full
-    if "full" in settings:
+    if "full" in setting_names:
         logger.info("Paired deltas vs 'full' (positive = worse than full):")
-        for name in settings:
+        for name in setting_names:
             if name == "full":
                 continue
             msgs = []
@@ -236,15 +236,15 @@ def main():
                 msgs.append(f"{m}: Δ={d.mean():+.4f} (full better on {wins}/{n})")
             logger.info(f"  {name:<12} " + " | ".join(msgs))
 
-    # Per-segment aggregation (mean over cameras) and visualization-pick ranking
-    per_seg = defaultdict(lambda: defaultdict(list))  # sample -> setting -> metric values
+    # Per-seg aggregation + visualization ranking
+    per_seg = defaultdict(lambda: defaultdict(list))
     for row in per_sample_rows:
         for m in ("psnr", "ssim", "lpips"):
             per_seg[row["sample"]][(row["setting"], m)].append(row[m])
 
     seg_rows = []
     for sample in samples:
-        for name in settings:
+        for name in setting_names:
             if (name, "psnr") not in per_seg[sample]:
                 continue
             seg_rows.append({
@@ -255,9 +255,9 @@ def main():
             })
 
     seg_metric = {(r["sample"], r["setting"]): r for r in seg_rows}
-    ranking = []
-    if "full" in settings:
-        dropout_names = [n for n in settings if n != "full"]
+    if "full" in setting_names:
+        dropout_names = [n for n in setting_names if n != "full"]
+        ranking = []
         for sample in samples:
             if (sample, "full") not in seg_metric:
                 continue
@@ -265,32 +265,25 @@ def main():
             gaps = {}
             for n in dropout_names:
                 r = seg_metric.get((sample, n))
-                if r is None:
-                    continue
-                # Positive gap = dropout worse than full on this seg
-                gaps[n] = {
-                    "lpips_gap": r["lpips"] - full_r["lpips"],
-                    "psnr_gap": full_r["psnr"] - r["psnr"],
-                }
+                if r is not None:
+                    gaps[n] = r["lpips"] - full_r["lpips"]
             if gaps:
-                score = float(np.nansum([g["lpips_gap"] for g in gaps.values()]))
-                ranking.append({"sample": sample, "viz_score": score, "gaps": gaps,
-                                "full_psnr": full_r["psnr"], "full_lpips": full_r["lpips"]})
+                ranking.append({"sample": sample,
+                                "viz_score": float(np.nansum(list(gaps.values()))),
+                                "gaps": gaps})
         ranking.sort(key=lambda r: r["viz_score"], reverse=True)
 
         logger.info("")
         logger.info("Per-seg visualization ranking (viz_score = sum of LPIPS gaps vs full; "
                     "higher = dropout damage more visible = better figure candidate):")
         hdr = f"{'rank':<5} {'sample':<14} {'viz_score':>9} " + " ".join(
-            f"{('ΔL_' + n):>12}" for n in dropout_names)
+            f"{('ΔL_' + n):>14}" for n in dropout_names)
         logger.info(hdr)
         for rank, r in enumerate(ranking, 1):
-            gap_str = " ".join(f"{r['gaps'].get(n, {}).get('lpips_gap', float('nan')):>12.4f}"
-                               for n in dropout_names)
+            gap_str = " ".join(f"{r['gaps'].get(n, float('nan')):>14.4f}" for n in dropout_names)
             logger.info(f"{rank:<5} {r['sample']:<14} {r['viz_score']:>9.4f} {gap_str}")
         if ranking:
-            logger.info(f"Suggested figure candidates (largest overall gaps): "
-                        f"{[r['sample'] for r in ranking[:3]]}")
+            logger.info(f"Suggested figure candidates: {[r['sample'] for r in ranking[:3]]}")
 
     out = Path(args.output_csv)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -309,6 +302,67 @@ def main():
         w.writeheader()
         w.writerows(seg_rows)
     logger.info(f"Saved: {out} (summary), {detail} (per sample+view), {seg_csv} (per seg)")
+
+
+def main():
+    args = parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    settings = {}
+    for spec in args.results:
+        name, _, path = spec.partition("=")
+        if not path:
+            raise ValueError(f"--results entries must be name=path, got: {spec}")
+        settings[name] = Path(path)
+    setting_names = list(settings)
+
+    if args.merge_shards:
+        per_sample_rows = []
+        fid_parts, fvd_parts = defaultdict(list), defaultdict(list)
+        n_loaded = 0
+        for i in range(256):
+            sp = shard_path(args.output_csv, i)
+            if not sp.exists():
+                continue
+            blob = torch.load(sp, map_location="cpu")
+            per_sample_rows.extend(blob["per_sample_rows"])
+            for k, v in blob["fid_cat"].items():
+                fid_parts[k].append(v)
+            for k, v in blob["fvd_cat"].items():
+                fvd_parts[k].append(v)
+            n_loaded += 1
+        if n_loaded == 0:
+            raise FileNotFoundError(f"No shard files found next to {args.output_csv}")
+        logger.info(f"Merged {n_loaded} shard file(s), {len(per_sample_rows)} rows")
+        fid_cat = {k: torch.cat(v, dim=0) for k, v in fid_parts.items()}
+        fvd_cat = {k: torch.cat(v, dim=0) for k, v in fvd_parts.items()}
+        report(args, setting_names, per_sample_rows, fid_cat, fvd_cat, device)
+        return
+
+    # Discover common samples
+    sample_sets = []
+    for name, d in settings.items():
+        if not d.exists():
+            raise FileNotFoundError(f"Results dir for '{name}' not found: {d}")
+        sample_sets.append({p.name for p in d.iterdir() if p.is_dir()})
+    samples = sorted(set.intersection(*sample_sets))
+    if not samples:
+        raise ValueError("No common sample directories across settings")
+
+    if args.num_shards > 1:
+        samples = samples[args.shard_idx::args.num_shards]
+        logger.info(f"Shard {args.shard_idx}/{args.num_shards}: {len(samples)} samples")
+
+    logger.info(f"Settings: {setting_names} | {len(samples)} samples | {args.num_views} views")
+    per_sample_rows, fid_cat, fvd_cat = compute(args, settings, samples, device)
+
+    if args.num_shards > 1:
+        sp = shard_path(args.output_csv, args.shard_idx)
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({"per_sample_rows": per_sample_rows, "fid_cat": fid_cat, "fvd_cat": fvd_cat}, sp)
+        logger.info(f"Shard saved: {sp} (run with --merge_shards after all shards finish)")
+    else:
+        report(args, setting_names, per_sample_rows, fid_cat, fvd_cat, device)
 
 
 if __name__ == "__main__":
