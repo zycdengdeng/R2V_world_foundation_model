@@ -14,8 +14,9 @@
 # - blur:  channels 16-31, train from scratch
 # - depth: channels 32-47, train from scratch
 #
-# Train/test split: by scene (drive). By default the last 2 scenes (sorted) are held out
-# as the test set; override with the DONGFENG_TEST_SCENES env var (comma-separated scene IDs).
+# Train/test split: by scene (drive). By default 2 evenly spaced scenes (from the sorted
+# scene list) are held out as the test set; override with the DONGFENG_TEST_SCENES env var
+# (comma-separated scene IDs).
 
 import copy
 import os
@@ -128,8 +129,14 @@ _ALL_SCENE_IDS = _scan_scene_ids()
 _env_test = os.environ.get("DONGFENG_TEST_SCENES", "").strip()
 if _env_test:
     TEST_SCENE_IDS = [s.strip() for s in _env_test.split(",") if s.strip()]
+elif _ALL_SCENE_IDS:
+    # Pick evenly spaced scenes from the sorted list, e.g. for 33 scenes and k=2
+    # this selects indices 11 and 22 (interior picks, never the first/last scene).
+    _n = len(_ALL_SCENE_IDS)
+    _k = min(NUM_AUTO_TEST_SCENES, _n)
+    TEST_SCENE_IDS = [_ALL_SCENE_IDS[(i + 1) * _n // (_k + 1)] for i in range(_k)]
 else:
-    TEST_SCENE_IDS = _ALL_SCENE_IDS[-NUM_AUTO_TEST_SCENES:] if _ALL_SCENE_IDS else []
+    TEST_SCENE_IDS = []
 TRAIN_SCENE_IDS = [s for s in _ALL_SCENE_IDS if s not in set(TEST_SCENE_IDS)]
 
 if _ALL_SCENE_IDS:
