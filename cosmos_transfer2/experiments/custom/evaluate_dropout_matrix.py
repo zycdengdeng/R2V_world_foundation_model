@@ -236,6 +236,62 @@ def main():
                 msgs.append(f"{m}: Δ={d.mean():+.4f} (full better on {wins}/{n})")
             logger.info(f"  {name:<12} " + " | ".join(msgs))
 
+    # Per-segment aggregation (mean over cameras) and visualization-pick ranking
+    per_seg = defaultdict(lambda: defaultdict(list))  # sample -> setting -> metric values
+    for row in per_sample_rows:
+        for m in ("psnr", "ssim", "lpips"):
+            per_seg[row["sample"]][(row["setting"], m)].append(row[m])
+
+    seg_rows = []
+    for sample in samples:
+        for name in settings:
+            if (name, "psnr") not in per_seg[sample]:
+                continue
+            seg_rows.append({
+                "sample": sample, "setting": name,
+                "psnr": float(np.mean(per_seg[sample][(name, "psnr")])),
+                "ssim": float(np.mean(per_seg[sample][(name, "ssim")])),
+                "lpips": float(np.nanmean(per_seg[sample][(name, "lpips")])),
+            })
+
+    seg_metric = {(r["sample"], r["setting"]): r for r in seg_rows}
+    ranking = []
+    if "full" in settings:
+        dropout_names = [n for n in settings if n != "full"]
+        for sample in samples:
+            if (sample, "full") not in seg_metric:
+                continue
+            full_r = seg_metric[(sample, "full")]
+            gaps = {}
+            for n in dropout_names:
+                r = seg_metric.get((sample, n))
+                if r is None:
+                    continue
+                # Positive gap = dropout worse than full on this seg
+                gaps[n] = {
+                    "lpips_gap": r["lpips"] - full_r["lpips"],
+                    "psnr_gap": full_r["psnr"] - r["psnr"],
+                }
+            if gaps:
+                score = float(np.nansum([g["lpips_gap"] for g in gaps.values()]))
+                ranking.append({"sample": sample, "viz_score": score, "gaps": gaps,
+                                "full_psnr": full_r["psnr"], "full_lpips": full_r["lpips"]})
+        ranking.sort(key=lambda r: r["viz_score"], reverse=True)
+
+        logger.info("")
+        logger.info("Per-seg visualization ranking (viz_score = sum of LPIPS gaps vs full; "
+                    "higher = dropout damage more visible = better figure candidate):")
+        hdr = f"{'rank':<5} {'sample':<14} {'viz_score':>9} " + " ".join(
+            f"{('ΔL_' + n):>12}" for n in dropout_names)
+        logger.info(hdr)
+        for rank, r in enumerate(ranking, 1):
+            gap_str = " ".join(f"{r['gaps'].get(n, {}).get('lpips_gap', float('nan')):>12.4f}"
+                               for n in dropout_names)
+            logger.info(f"{rank:<5} {r['sample']:<14} {r['viz_score']:>9.4f} {gap_str}")
+        if ranking:
+            logger.info(f"Suggested figure candidates (largest overall gaps): "
+                        f"{[r['sample'] for r in ranking[:3]]}")
+
     out = Path(args.output_csv)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", newline="") as f:
@@ -247,7 +303,12 @@ def main():
         w = csv.DictWriter(f, fieldnames=["setting", "sample", "camera", "psnr", "ssim", "lpips"])
         w.writeheader()
         w.writerows(per_sample_rows)
-    logger.info(f"Saved summary to {out} and per-sample details to {detail}")
+    seg_csv = out.with_name(out.stem + "_per_seg.csv")
+    with open(seg_csv, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["sample", "setting", "psnr", "ssim", "lpips"])
+        w.writeheader()
+        w.writerows(seg_rows)
+    logger.info(f"Saved: {out} (summary), {detail} (per sample+view), {seg_csv} (per seg)")
 
 
 if __name__ == "__main__":
