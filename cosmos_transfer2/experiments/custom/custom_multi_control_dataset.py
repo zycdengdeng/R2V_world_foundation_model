@@ -127,6 +127,10 @@ class MultiControlMultiviewDataset(Dataset):
         except Exception:
             return False, 0
 
+    def _extract_scene_id(self, sample_id: str) -> str:
+        """Extract scene ID from a sample ID. Subclasses may override for other naming schemes."""
+        return sample_id.split("_")[0]  # e.g., "017_seg01" -> "017"
+
     def _build_sample_list(self) -> List[str]:
         """Build list of sample IDs from the dataset."""
         caption_path = self.blur_dataset_dir / "captions"
@@ -145,7 +149,7 @@ class MultiControlMultiviewDataset(Dataset):
 
         for caption_file in caption_folder.glob("*.json"):
             sample_id = caption_file.stem  # e.g., "017_seg01"
-            scene_id = sample_id.split("_")[0]  # e.g., "017"
+            scene_id = self._extract_scene_id(sample_id)  # e.g., "017"
 
             # Skip excluded scenes
             if scene_id in self.exclude_scene_ids:
