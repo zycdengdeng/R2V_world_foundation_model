@@ -59,25 +59,32 @@ class EveryNTestLoss(Callback):
         self.rank = 0
 
     def on_train_start(self, model, iteration: int = 0) -> None:
-        """Initialize dataloader on training start."""
-        from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
-
+        """Log configuration on training start."""
         self.rank = dist.get_rank() if dist.is_initialized() else 0
-
-        # Create dataloader for test set (no shuffling for reproducibility)
-        self.dataloader = DataLoader(
-            self.eval_dataset,
-            batch_size=1,  # Process one sample at a time to avoid OOM
-            shuffle=False,
-            num_workers=2,
-            pin_memory=True,
-            collate_fn=collate_fn,
-            drop_last=False,
-        )
 
         if self.rank == 0:
             log.info(f"[EveryNTestLoss] Initialized with {len(self.eval_dataset)} test samples")
             log.info(f"[EveryNTestLoss] Will compute test loss every {self.every_n} iterations")
+
+    def _make_dataloader(self) -> DataLoader:
+        """Build a throwaway dataloader for one evaluation pass.
+
+        num_workers=0 on purpose: worker processes exchange ~GB-sized video
+        batches through /dev/shm, and a long-lived loader with workers was
+        implicated in host shared-memory growth that OOM-killed training.
+        In-process loading is slower but leak-free, and this runs rarely.
+        """
+        from cosmos_transfer2.experiments.custom.custom_multi_control_dataset import collate_fn
+
+        return DataLoader(
+            self.eval_dataset,
+            batch_size=1,  # Process one sample at a time to avoid OOM
+            shuffle=False,
+            num_workers=0,
+            pin_memory=False,
+            collate_fn=collate_fn,
+            drop_last=False,
+        )
 
     def on_training_step_end(
         self,
@@ -129,7 +136,8 @@ class EveryNTestLoss(Callback):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        for batch_idx, batch in enumerate(self.dataloader):
+        dataloader = self._make_dataloader()
+        for batch_idx, batch in enumerate(dataloader):
             # Move batch to device (no try/except - all ranks must succeed together)
             for key, value in batch.items():
                 if isinstance(value, torch.Tensor):
@@ -150,6 +158,7 @@ class EveryNTestLoss(Callback):
             if batch_idx % 10 == 0 and torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+        del dataloader
         model.train()
 
         # Synchronize all ranks after test loss computation

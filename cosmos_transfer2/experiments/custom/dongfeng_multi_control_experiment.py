@@ -186,7 +186,11 @@ def register_dongfeng_dataloader() -> None:
             collate_fn=collate_fn,
             batch_size=1,
             drop_last=True,
-            num_workers=4,
+            # 2 persistent workers: video batches travel through /dev/shm, and
+            # worker churn at epoch boundaries leaked shared memory until the
+            # host OOM-killed a rank. Persistent workers bound shm usage.
+            num_workers=2,
+            persistent_workers=True,
             pin_memory=True,
         ),
     )
@@ -228,7 +232,7 @@ def _build_trainer_callbacks() -> dict:
     if _ALL_SCENE_IDS and TEST_SCENE_IDS:
         callbacks["every_n_test_loss"] = L(EveryNTestLoss)(
             eval_dataset=create_eval_dataset(),
-            every_n=200,
+            every_n=400,
             num_timestep_samples=4,
             name="test_loss",
         )
@@ -253,7 +257,7 @@ dongfeng_multi_control_post_train = dict(
         name=f"2b_dongfeng_multi_control_{RUN_TIMESTAMP}",
     ),
     checkpoint=dict(
-        save_iter=500,
+        save_iter=200,  # Frequent saves: the first run crashed at iter ~330 with nothing saved
         # Fresh start from the OFFICIAL Transfer2.5 multiview checkpoint
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
         load_training_state=False,
