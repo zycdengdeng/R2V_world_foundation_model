@@ -19,6 +19,7 @@ from cosmos_transfer2.experiments.custom import custom_multi_control_experiment
 from cosmos_transfer2.experiments.custom import dense_multi_control_experiment
 from cosmos_transfer2.experiments.custom import ablation_single_view_experiment
 from cosmos_transfer2.experiments.custom import dongfeng_multi_control_experiment
+from cosmos_transfer2.experiments.custom import tianjin_small_experiment
 
 __all__ = [
     "MultiControlMultiviewDataset",
