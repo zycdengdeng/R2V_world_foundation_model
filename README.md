@@ -1,3 +1,5 @@
+> **R2V 项目说明请看 [README_R2V.md](README_R2V.md)**（本文件为上游 NVIDIA Cosmos 原版 README）。
+
 <p align="center">
     <img src="https://github.com/user-attachments/assets/28f2d612-bbd6-44a3-8795-833d05e9f05f" width="274" alt="NVIDIA Cosmos"/>
 </p>

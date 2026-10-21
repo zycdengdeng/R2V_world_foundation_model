@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1030" role="img" aria-label="R2A 多视角可控生成完整架构：三路条件经冻结VAE编码并按槽位拼接，可训练控制分支在冻结Cosmos主干的第0/7/14/21块注入可加残差">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
+    </marker>
+    <marker id="arrAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#D97706"/>
+    </marker>
+    <marker id="arrGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9CA3AF"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1500" height="1030" fill="#FFFFFF"/>
+  <text x="750" y="34" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="bold" fill="#111827">R2A 多视角可控生成 — 完整架构</text>
+  <text x="750" y="56" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#6B7280">7 视角 × 29 帧 × 720p ·  潜空间 16ch × (7×8) × 90 × 160  ·  token 序列 ≈ 20 万</text>
+
+  <!-- ===================== 冻结主干 lane ===================== -->
+  <rect x="395" y="80" width="1075" height="245" rx="8" fill="#F9FAFB" stroke="#9CA3AF" stroke-dasharray="6 4"/>
+  <text x="410" y="102" font-family="sans-serif" font-size="13" font-weight="bold" fill="#4B5563">❄ 冻结生成主干 — Cosmos-Transfer2.5 2B 多视图 DiT（28 块）</text>
+  <text x="1456" y="102" text-anchor="end" font-family="sans-serif" font-size="11" fill="#6B7280">联合时空-视角自注意力 + 多相机3D RoPE + 逐视角文本cross-attn + adaLN(t)</text>
+
+  <!-- x_t assembly -->
+  <rect x="412" y="150" width="150" height="72" rx="6" fill="#F3F4F6" stroke="#6B7280"/>
+  <text x="487" y="174" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">带噪潜变量 x_t 16ch</text>
+  <text x="487" y="191" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">+掩码 2ch</text>
+  <text x="487" y="206" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">+相机嵌入 7ch</text>
+
+  <line x1="562" y1="186" x2="600" y2="186" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- x_embedder -->
+  <rect x="602" y="156" width="96" height="60" rx="6" fill="#F3F4F6" stroke="#6B7280"/>
+  <text x="650" y="181" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">x_embedder</text>
+  <text x="650" y="197" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">patchify 2×2</text>
+
+  <line x1="698" y1="186" x2="730" y2="186" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- 28 blocks row -->
+  <!-- cells: 0,1,…,7,…,14,…,21,…,26,27  w=42 gap=8 start=732 -->
+  <g font-family="sans-serif" font-size="12">
+    <rect x="732"  y="150" width="42" height="72" rx="4" fill="#E5E7EB" stroke="#D97706" stroke-width="2"/>
+    <text x="753"  y="192" text-anchor="middle" fill="#111827">0</text>
+    <rect x="782"  y="150" width="42" height="72" rx="4" fill="#E5E7EB" stroke="#6B7280"/>
+    <text x="803"  y="192" text-anchor="middle" fill="#111827">1</text>
+    <text x="853"  y="192" text-anchor="middle" fill="#6B7280">…</text>
+    <rect x="882"  y="150" width="42" height="72" rx="4" fill="#E5E7EB" stroke="#D97706" stroke-width="2"/>
+    <text x="903"  y="192" text-anchor="middle" fill="#111827">7</text>
+    <text x="953"  y="192" text-anchor="middle" fill="#6B7280">…</text>
+    <rect x="982"  y="150" width="42" height="72" rx="4" fill="#E5E7EB" stroke="#D97706" stroke-width="2"/>
+    <text x="1003" y="192" text-anchor="middle" fill="#111827">14</text>
+    <text x="1053" y="192" text-anchor="middle" fill="#6B7280">…</text>
+    <rect x="1082" y="150" width="42" height="72" rx="4" fill="#E5E7EB" stroke="#D97706" stroke-width="2"/>
+    <text x="1103" y="192" text-anchor="middle" fill="#111827">21</text>
+    <text x="1153" y="192" text-anchor="middle" fill="#6B7280">…</text>
+    <rect x="1182" y="150" width="42" height="72" rx="4" fill="#E5E7EB" stroke="#6B7280"/>
+    <text x="1203" y="192" text-anchor="middle" fill="#111827">27</text>
+  </g>
+  <text x="978" y="140" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#D97706">橙框 = 注入点：x ← Block(x) + λ·hᵢ</text>
+
+  <line x1="1224" y1="186" x2="1256" y2="186" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- final layer -->
+  <rect x="1258" y="156" width="92" height="60" rx="6" fill="#F3F4F6" stroke="#6B7280"/>
+  <text x="1304" y="181" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">final layer</text>
+  <text x="1304" y="197" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">unpatchify</text>
+
+  <line x1="1350" y1="186" x2="1382" y2="186" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="1384" y="162" width="72" height="48" rx="6" fill="#EEF2FF" stroke="#4F46E5"/>
+  <text x="1420" y="183" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#312E81">速度场</text>
+  <text x="1420" y="199" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#312E81">v̂</text>
+
+  <!-- ===================== 左列输入 ===================== -->
+  <!-- GT video + noise -->
+  <rect x="36" y="118" width="160" height="46" rx="6" fill="#FFFFFF" stroke="#374151"/>
+  <text x="116" y="138" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">真值视频（训练）</text>
+  <text x="116" y="154" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">7 视角 × 29 帧</text>
+
+  <rect x="36" y="186" width="160" height="40" rx="6" fill="#FFFFFF" stroke="#374151" stroke-dasharray="4 3"/>
+  <text x="116" y="203" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">高斯噪声 ε</text>
+  <text x="116" y="218" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#6B7280">推理时为唯一起点</text>
+
+  <!-- VAE top -->
+  <rect x="232" y="118" width="130" height="46" rx="6" fill="#F3F4F6" stroke="#6B7280"/>
+  <text x="297" y="138" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">❄ Wan2.1 VAE</text>
+  <text x="297" y="154" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">29帧→8潜帧, 8×空间</text>
+
+  <line x1="196" y1="141" x2="230" y2="141" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="362" y1="141" x2="398" y2="162" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="372" y="138" font-family="sans-serif" font-size="11" fill="#6B7280">x₀</text>
+  <line x1="196" y1="206" x2="412" y2="200" stroke="#374151" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text x="300" y="222" font-family="sans-serif" font-size="11" fill="#6B7280">加噪 x_t = 插值(x₀, ε, t)</text>
+
+  <!-- captions -->
+  <rect x="36" y="382" width="160" height="46" rx="6" fill="#FFFFFF" stroke="#374151"/>
+  <text x="116" y="402" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">7 条视角文本</text>
+  <text x="116" y="418" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#6B7280">前缀 + 场景caption（0.2丢弃）</text>
+  <line x1="196" y1="405" x2="230" y2="405" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="232" y="382" width="130" height="46" rx="6" fill="#F3F4F6" stroke="#6B7280"/>
+  <text x="297" y="402" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">❄ Reason1.1-7B</text>
+  <text x="297" y="418" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">文本编码 + 投影</text>
+  <!-- dashed cross-attn arrows -->
+  <path d="M362,396 C520,360 620,300 700,228" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
+  <path d="M362,414 C520,450 620,520 700,600" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
+  <text x="520" y="348" font-family="sans-serif" font-size="11" fill="#6B7280">逐视角 cross-attn（两条流共用）</text>
+
+  <!-- timestep -->
+  <circle cx="468" cy="470" r="24" fill="#FFFFFF" stroke="#374151"/>
+  <text x="468" y="475" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#111827">t</text>
+  <path d="M468,446 C470,400 480,360 500,328" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
+  <path d="M468,494 C470,520 480,540 500,556" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
+  <text x="505" y="474" font-family="sans-serif" font-size="11" fill="#6B7280">adaLN 调制（两条流）</text>
+
+  <!-- ===================== 条件输入 ===================== -->
+  <rect x="36" y="586" width="160" height="40" rx="6" fill="#DBEAFE" stroke="#2563EB"/>
+  <text x="116" y="603" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#1E3A8A">布局条件 (hdmap+bbox)</text>
+  <text x="116" y="618" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#1E40AF">7 视角 × 29 帧</text>
+  <rect x="36" y="644" width="160" height="40" rx="6" fill="#FCE7F3" stroke="#DB2777"/>
+  <text x="116" y="661" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#831843">光度条件 (blur投影)</text>
+  <text x="116" y="676" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#9D174D">7 视角 × 29 帧</text>
+  <rect x="36" y="702" width="160" height="40" rx="6" fill="#D1FAE5" stroke="#059669"/>
+  <text x="116" y="719" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#064E3B">几何条件 (稀疏深度)</text>
+  <text x="116" y="734" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#065F46">7 视角 × 29 帧</text>
+
+  <line x1="196" y1="606" x2="230" y2="638" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="196" y1="664" x2="230" y2="664" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="196" y1="722" x2="230" y2="690" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- VAE bottom (shared) -->
+  <rect x="232" y="630" width="130" height="68" rx="6" fill="#F3F4F6" stroke="#6B7280"/>
+  <text x="297" y="656" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#111827">❄ Wan2.1 VAE</text>
+  <text x="297" y="672" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">三路独立编码</text>
+  <text x="297" y="687" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6B7280">各 16ch（与上方同权重）</text>
+
+  <line x1="362" y1="664" x2="396" y2="664" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="380" y="652" font-family="sans-serif" font-size="11" fill="#6B7280"> </text>
+
+  <!-- ===================== 可训练控制分支 lane ===================== -->
+  <rect x="395" y="565" width="1075" height="265" rx="8" fill="#FFFBEB" stroke="#D97706" stroke-dasharray="6 4"/>
+  <text x="410" y="587" font-family="sans-serif" font-size="13" font-weight="bold" fill="#92400E">🔥 可训练控制分支（VACE 式适配器）— 329M 参数，占全模型 13.8%</text>
+
+  <!-- channel strip -->
+  <g font-family="sans-serif">
+    <rect x="412" y="640" width="62" height="34" fill="#DBEAFE" stroke="#2563EB"/>
+    <rect x="474" y="640" width="62" height="34" fill="#FCE7F3" stroke="#DB2777"/>
+    <rect x="536" y="640" width="62" height="34" fill="#D1FAE5" stroke="#059669"/>
+    <rect x="598" y="640" width="96" height="34" fill="#F9FAFB" stroke="#9CA3AF" stroke-dasharray="4 3"/>
+    <text x="443" y="661" text-anchor="middle" font-size="10.5" fill="#1E3A8A">0–15</text>
+    <text x="505" y="661" text-anchor="middle" font-size="10.5" fill="#831843">16–31</text>
+    <text x="567" y="661" text-anchor="middle" font-size="10.5" fill="#064E3B">32–47</text>
+    <text x="646" y="661" text-anchor="middle" font-size="10.5" fill="#6B7280">48–127 全零</text>
+    <text x="443" y="692" text-anchor="middle" font-size="10" fill="#1E40AF">继承预训练✓</text>
+    <text x="505" y="692" text-anchor="middle" font-size="10" fill="#9D174D">随机初始化</text>
+    <text x="567" y="692" text-anchor="middle" font-size="10" fill="#065F46">随机初始化</text>
+    <text x="646" y="692" text-anchor="middle" font-size="10" fill="#9CA3AF">空槽位</text>
+    <text x="553" y="630" text-anchor="middle" font-size="11" fill="#92400E">48ch 拼接 → 零填充至 128ch（8 槽接口）</text>
+  </g>
+
+  <line x1="694" y1="657" x2="726" y2="657" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- control embedder -->
+  <rect x="728" y="630" width="104" height="60" rx="6" fill="#FEF3C7" stroke="#D97706"/>
+  <text x="780" y="652" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#92400E">控制嵌入器</text>
+  <text x="780" y="668" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#B45309">patchify 2×2</text>
+  <text x="780" y="682" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#B45309">+掩码+相机嵌入</text>
+
+  <line x1="832" y1="660" x2="862" y2="660" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- hint MLP -->
+  <rect x="864" y="630" width="84" height="60" rx="6" fill="#FEF3C7" stroke="#D97706"/>
+  <text x="906" y="655" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#92400E">hint MLP</text>
+  <text x="906" y="671" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#B45309">7×(线性+SiLU)</text>
+
+  <line x1="948" y1="660" x2="978" y2="660" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- 4 control blocks -->
+  <g font-family="sans-serif" font-size="12">
+    <rect x="980"  y="628" width="100" height="66" rx="6" fill="#FEF3C7" stroke="#D97706"/>
+    <text x="1030" y="652" text-anchor="middle" fill="#92400E">控制块 0</text>
+    <text x="1030" y="668" text-anchor="middle" font-size="10" fill="#B45309">⊕ before_proj(零)</text>
+    <rect x="1100" y="628" width="100" height="66" rx="6" fill="#FEF3C7" stroke="#D97706"/>
+    <text x="1150" y="658" text-anchor="middle" fill="#92400E">控制块 1</text>
+    <rect x="1220" y="628" width="100" height="66" rx="6" fill="#FEF3C7" stroke="#D97706"/>
+    <text x="1270" y="658" text-anchor="middle" fill="#92400E">控制块 2</text>
+    <rect x="1340" y="628" width="100" height="66" rx="6" fill="#FEF3C7" stroke="#D97706"/>
+    <text x="1390" y="658" text-anchor="middle" fill="#92400E">控制块 3</text>
+  </g>
+  <line x1="1080" y1="660" x2="1098" y2="660" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="1200" y1="660" x2="1218" y2="660" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="1320" y1="660" x2="1338" y2="660" stroke="#374151" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="1210" y="716" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#92400E">每块 = 与主干块同构（联合自注意力 + 文本cross-attn + FFN + adaLN）</text>
+
+  <!-- before_proj entry from backbone tokens -->
+  <path d="M710,222 C760,420 880,560 985,626" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
+  <text x="845" y="520" font-family="sans-serif" font-size="11" fill="#6B7280">主干 token（混入控制流起点）</text>
+
+  <!-- hints up -->
+  <path d="M1030,628 C980,460 830,320 756,226" fill="none" stroke="#D97706" stroke-width="2" marker-end="url(#arrAmber)"/>
+  <path d="M1150,628 C1100,470 960,320 906,226" fill="none" stroke="#D97706" stroke-width="2" marker-end="url(#arrAmber)"/>
+  <path d="M1270,628 C1220,480 1070,320 1006,226" fill="none" stroke="#D97706" stroke-width="2" marker-end="url(#arrAmber)"/>
+  <path d="M1390,628 C1350,490 1170,320 1106,226" fill="none" stroke="#D97706" stroke-width="2" marker-end="url(#arrAmber)"/>
+  <text x="1120" y="418" font-family="sans-serif" font-size="12" fill="#B45309">h₀…h₃ = after_proj(零初始化线性)</text>
+  <text x="1120" y="434" font-family="sans-serif" font-size="11" fill="#B45309">初始时刻 h≡0 → 模型与无条件主干逐点等价</text>
+
+  <!-- ===================== 输出 ===================== -->
+  <!-- train branch -->
+  <path d="M1420,162 C1420,120 1420,110 1420,104" fill="none" stroke="#4F46E5" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="1330" y="66" width="160" height="38" rx="6" fill="#EEF2FF" stroke="#4F46E5" stroke-dasharray="4 3"/>
+  <text x="1410" y="82" text-anchor="middle" font-family="sans-serif" font-size="11.5" fill="#312E81">训练：整流流损失</text>
+  <text x="1410" y="97" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#4338CA">MSE(v̂, 真实速度) — 只更新🔥</text>
+
+  <!-- inference branch -->
+  <path d="M1420,210 C1420,250 1420,280 1420,300" fill="none" stroke="#4F46E5" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="1310" y="302" width="180" height="92" rx="6" fill="#EEF2FF" stroke="#4F46E5"/>
+  <text x="1400" y="324" text-anchor="middle" font-family="sans-serif" font-size="11.5" fill="#312E81">推理：35 步采样循环</text>
+  <text x="1400" y="341" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#4338CA">CFG×2 前向，guidance=7</text>
+  <text x="1400" y="358" text-anchor="middle" font-family="sans-serif" font-size="10.5" fill="#4338CA">控制分支每步都运行</text>
+  <text x="1400" y="380" text-anchor="middle" font-family="sans-serif" font-size="11.5" fill="#312E81">→ ❄VAE解码 → 7视角视频</text>
+
+  <!-- ===================== 图例 ===================== -->
+  <g font-family="sans-serif" font-size="11.5">
+    <rect x="412" y="950" width="26" height="18" rx="3" fill="#F3F4F6" stroke="#6B7280"/>
+    <text x="446" y="964" fill="#374151">❄ 冻结（主干28块 / VAE / 文本编码器 / 相机嵌入 — 2.06B, 86.2%）</text>
+    <rect x="900" y="950" width="26" height="18" rx="3" fill="#FEF3C7" stroke="#D97706"/>
+    <text x="934" y="964" fill="#374151">🔥 可训练（控制嵌入器 + hint MLP + 4控制块 — 329M, 13.8%）</text>
+    <line x1="412" y1="994" x2="446" y2="994" stroke="#D97706" stroke-width="2" marker-end="url(#arrAmber)"/>
+    <text x="454" y="998" fill="#374151">残差提示注入</text>
+    <line x1="580" y1="994" x2="614" y2="994" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrGray)"/>
+    <text x="622" y="998" fill="#374151">共享条件（文本 / 时间步 / token混入）</text>
+    <text x="900" y="998" fill="#6B7280">所有 token 流为 7视角联合序列；控制 token 与主干 token 逐时空位置一一对应</text>
+  </g>
+</svg>
