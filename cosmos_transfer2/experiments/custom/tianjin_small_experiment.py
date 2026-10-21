@@ -9,8 +9,8 @@
 # - training uses NUM_SMALL_TRAIN_SCENES evenly spaced scenes out of the 75
 #   full-run train scenes (override with TIANJIN_TRAIN_SCENES="001,005,...")
 # - fresh start from the official Transfer2.5 multiview checkpoint
-# - short schedule (3000 iters, grad_accum 2) with the OOM fixes and the
-#   text-embedding cache (per-scene captions -> larger cache)
+# - ~12h schedule (400 iters, grad_accum 2, ~27 epochs over 10 scenes) with the
+#   OOM fixes and the text-embedding cache (per-scene captions -> larger cache)
 
 import copy
 import os
@@ -60,7 +60,7 @@ WORLD_SIZE = int(os.environ.get("WORLD_SIZE", 8))
 # Reduced train subset (test set unchanged)
 # ============================================================================
 
-NUM_SMALL_TRAIN_SCENES = 20
+NUM_SMALL_TRAIN_SCENES = 10
 
 _env_scenes = os.environ.get("TIANJIN_TRAIN_SCENES", "").strip()
 if _env_scenes:
@@ -176,7 +176,7 @@ tianjin_multi_control_small = dict(
         name=f"2b_tianjin_small_{RUN_TIMESTAMP}",
     ),
     checkpoint=dict(
-        save_iter=200,
+        save_iter=100,
         load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path,
         load_training_state=False,
         strict_resume=False,
@@ -191,8 +191,8 @@ tianjin_multi_control_small = dict(
     scheduler=dict(
         f_max=[0.5],
         f_min=[0.2],
-        warm_up_steps=[300],
-        cycle_lengths=[3000],
+        warm_up_steps=[50],
+        cycle_lengths=[400],
     ),
     model=dict(
         config=dict(
@@ -246,7 +246,7 @@ tianjin_multi_control_small = dict(
     trainer=dict(
         logging_iter=50,
         grad_accum_iter=2,
-        max_iter=3000,
+        max_iter=400,
         callbacks=dict(
             heart_beat=dict(save_s3=False),
             # Tianjin captions differ per scene -> cache up to 40 caption sets
@@ -255,7 +255,7 @@ tianjin_multi_control_small = dict(
             device_monitor=dict(save_s3=False),
             grad_clip=dict(clip_norm=0.1),
             every_n_sample_ema=L(EveryNDrawSampleMultiviewVideo)(
-                every_n=500,
+                every_n=200,
                 is_x0=False,
                 is_ema=True,
                 num_sampling_step=35,
@@ -268,7 +268,7 @@ tianjin_multi_control_small = dict(
             ),
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=400,
+                every_n=200,
                 num_timestep_samples=4,
                 name="test_loss",
             ),
