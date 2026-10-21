@@ -8,7 +8,7 @@
 
 - 训练数据从全量的 75 场景缩到 **10 场景**（约 30 个 29 帧片段）；
 - 训练步数从全量的 8000 缩到 **400 步**；
-- **测试集与全量模型完全一致**（8 个场景），因此本实验的 test loss 与推理指标可直接和全量模型（iter_6600）对比——配方中除数据量与步数外无任何其他差异。
+- 测试集取全量 8 个测试场景中的 **2 个（053、077）**，训练中的 test loss 和训完的推理都只用这两个。两个场景同样未参与全量模型的训练，所以在它们之上的指标与全量模型（iter_6600）直接可比。
 
 预计耗时：按 105s/iter 估算，400 步 ≈ **12.5 小时**（含评估与采样开销）。
 
@@ -17,7 +17,10 @@
 | 集合 | 场景 | 片段数 |
 |---|---|---|
 | 训练（10 个，75 个中均匀间隔选取） | 001, 009, 019, 027, 037, 044, 052, 061, 069, 079 | ~30 |
-| 测试（与全量运行相同的 8 个） | 031, 033, 053, 056, 076, 077, 088, 089 | ~24 |
+| 测试（全量 8 个测试场景中均匀取 2 个） | **053, 077** | ~6 |
+
+全量运行的其余 6 个测试场景（031/033/056/076/088/089）在本实验中完全不使用——
+它们没有进入训练，所以 053/077 上的指标仍可与全量模型直接对比。
 
 - 手动指定训练子集：启动时加环境变量 `TIANJIN_TRAIN_SCENES="001,005,..."`；
 - 其余 57 个训练场景在本实验中**不参与任何环节**。
@@ -55,7 +58,7 @@
 | 项 | 值 |
 |---|---|
 | 检查点 | **每 100 步**（共 4 个，DCP 格式含 EMA+优化器） |
-| test loss | 每 **100** 步（与检查点对齐，4 个检查点各有 loss 值可选；仅用 2 个测试场景 053、077 以控制耗时，**最终评测仍用全部 8 个**） |
+| test loss | 每 **100** 步（与检查点对齐，4 个检查点各有 loss 值可选；测试集即 053、077 两场景，单次约 6 分钟） |
 | EMA 可视化采样 | 每 **200** 步（35 步采样 / guidance 7 / control weight 1.0） |
 | 文本嵌入缓存 | 开启（CPU 存储，上限 40 组——天津 caption 按场景不同） |
 | DataLoader | num_workers=2，persistent_workers=True（防共享内存泄漏） |
@@ -80,7 +83,17 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NUM_GPUS=8 WANDB_MODE=online \
 ## 6. 怎么看结果
 
 - **过程中**：iter 200 / 400 的 EMA 采样视频（run 目录下采样文件夹 + wandb），直观判断小数据短训能到什么程度；test loss 两个点与全量 run 的同期曲线对比；
-- **训完后**：用 `cosmos_transfer2.experiments.custom.inference`（旧数据推理脚本本就指向天津数据与同一测试集）加 `--experiment tianjin_multi_control_small --ckpt_path .../iter_000000400` 对 8 个测试场景推理，再用 `scripts/eval_dropout_matrix.py` 的指标口径与全量模型（iter_6600）比较 PSNR/SSIM/LPIPS/FID/FVD。
+- **训完后**：用旧数据推理脚本对这 2 个测试场景推理：
+
+  ```bash
+  torchrun ... -m cosmos_transfer2.experiments.custom.inference \
+    --experiment tianjin_multi_control_small \
+    --ckpt_path .../tianjin_small/2b_tianjin_small_*/checkpoints/iter_000000400 \
+    --scene_ids 053 077 --context_parallel_size 8 --num_views 7 \
+    --output_dir .../tianjin_small/inference
+  ```
+
+  再用 `scripts/eval_dropout_matrix.py` 的指标口径，与全量模型（iter_6600）在**同样这 2 个场景**上的结果比较 PSNR/SSIM/LPIPS/FID/FVD（全量模型之前的推理结果已覆盖 053/077，直接取用即可）。
 
 ## 7. 可调旋钮
 

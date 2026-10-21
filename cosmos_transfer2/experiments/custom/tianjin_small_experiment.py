@@ -80,10 +80,12 @@ print(f"[tianjin_small] Train subset: {len(SMALL_TRAIN_SCENE_IDS)}/{len(TRAIN_SC
       f"{SMALL_TRAIN_SCENE_IDS}")
 print(f"[tianjin_small] Test scenes (same as full run): {TEST_SCENE_IDS}")
 
-# In-run test-loss callback uses a 2-scene subset (evenly spaced from the 8)
-# to keep each evaluation ~6 min; FINAL evaluation still uses all 8 test scenes.
-TEST_LOSS_SCENE_IDS = [TEST_SCENE_IDS[(i + 1) * len(TEST_SCENE_IDS) // 3] for i in range(2)]
-print(f"[tianjin_small] Test-loss callback subset: {TEST_LOSS_SCENE_IDS}")
+# The small run's test set is 2 scenes (evenly spaced from the full run's 8),
+# used both for the in-run test loss and for final inference. The remaining
+# 6 full-run test scenes are unused here (never added to training, so results
+# on these 2 scenes stay comparable with the full-data model).
+SMALL_TEST_SCENE_IDS = [TEST_SCENE_IDS[(i + 1) * len(TEST_SCENE_IDS) // 3] for i in range(2)]
+print(f"[tianjin_small] Small test set (loss + inference): {SMALL_TEST_SCENE_IDS}")
 
 
 # ============================================================================
@@ -113,7 +115,7 @@ TianjinSmallConditioner: LazyDict = L(MultiViewControlVideo2WorldConditioner)(**
 # ============================================================================
 
 def create_eval_dataset():
-    """Test-loss subset (2 of the 8 test scenes); final eval uses all 8."""
+    """The small run's 2-scene test set (053, 077)."""
     return MultiControlMultiviewDataset(
         blur_dataset_dir=BLUR_DATASET_DIR,
         depth_dataset_dir=DEPTH_DATASET_DIR,
@@ -125,7 +127,7 @@ def create_eval_dataset():
         single_caption_camera_name="camera_front_wide_120fov",
         add_view_prefix_to_caption=True,
         exclude_scene_ids=sorted(
-            set(TRAIN_SCENE_IDS) | (set(TEST_SCENE_IDS) - set(TEST_LOSS_SCENE_IDS))
+            set(TRAIN_SCENE_IDS) | (set(TEST_SCENE_IDS) - set(SMALL_TEST_SCENE_IDS))
         ),
     )
 
