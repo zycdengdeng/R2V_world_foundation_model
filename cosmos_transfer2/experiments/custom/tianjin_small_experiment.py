@@ -80,6 +80,11 @@ print(f"[tianjin_small] Train subset: {len(SMALL_TRAIN_SCENE_IDS)}/{len(TRAIN_SC
       f"{SMALL_TRAIN_SCENE_IDS}")
 print(f"[tianjin_small] Test scenes (same as full run): {TEST_SCENE_IDS}")
 
+# In-run test-loss callback uses a 2-scene subset (evenly spaced from the 8)
+# to keep each evaluation ~6 min; FINAL evaluation still uses all 8 test scenes.
+TEST_LOSS_SCENE_IDS = [TEST_SCENE_IDS[(i + 1) * len(TEST_SCENE_IDS) // 3] for i in range(2)]
+print(f"[tianjin_small] Test-loss callback subset: {TEST_LOSS_SCENE_IDS}")
+
 
 # ============================================================================
 # Conditioner (same construction, own registration name)
@@ -108,7 +113,7 @@ TianjinSmallConditioner: LazyDict = L(MultiViewControlVideo2WorldConditioner)(**
 # ============================================================================
 
 def create_eval_dataset():
-    """Full test set (same 8 scenes as the full-data run)."""
+    """Test-loss subset (2 of the 8 test scenes); final eval uses all 8."""
     return MultiControlMultiviewDataset(
         blur_dataset_dir=BLUR_DATASET_DIR,
         depth_dataset_dir=DEPTH_DATASET_DIR,
@@ -119,7 +124,9 @@ def create_eval_dataset():
         camera_keys=TRAINING_CAMERAS if not SMOKE else TRAINING_CAMERAS[:1],
         single_caption_camera_name="camera_front_wide_120fov",
         add_view_prefix_to_caption=True,
-        exclude_scene_ids=TRAIN_SCENE_IDS,
+        exclude_scene_ids=sorted(
+            set(TRAIN_SCENE_IDS) | (set(TEST_SCENE_IDS) - set(TEST_LOSS_SCENE_IDS))
+        ),
     )
 
 
@@ -268,7 +275,7 @@ tianjin_multi_control_small = dict(
             ),
             every_n_test_loss=L(EveryNTestLoss)(
                 eval_dataset=create_eval_dataset(),
-                every_n=200,
+                every_n=100,
                 num_timestep_samples=4,
                 name="test_loss",
             ),

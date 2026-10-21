@@ -55,7 +55,7 @@
 | 项 | 值 |
 |---|---|
 | 检查点 | **每 100 步**（共 4 个，DCP 格式含 EMA+优化器） |
-| test loss | 每 **200** 步（全 8 测试场景 × 4 时间步采样；临时无 worker loader） |
+| test loss | 每 **100** 步（与检查点对齐，4 个检查点各有 loss 值可选；仅用 2 个测试场景 053、077 以控制耗时，**最终评测仍用全部 8 个**） |
 | EMA 可视化采样 | 每 **200** 步（35 步采样 / guidance 7 / control weight 1.0） |
 | 文本嵌入缓存 | 开启（CPU 存储，上限 40 组——天津 caption 按场景不同） |
 | DataLoader | num_workers=2，persistent_workers=True（防共享内存泄漏） |
