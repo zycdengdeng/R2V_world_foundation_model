@@ -19,6 +19,11 @@ export HF_ENDPOINT="https://hf-mirror.com"
 export HF_HUB_ENABLE_HF_TRANSFER=0
 export TRANSFORMERS_CACHE="/mnt/zihanw/.cache/huggingface/transformers"
 
+# Mitigate CUDA memory fragmentation: allocation patterns spike during DCP
+# checkpoint saves (allgather of sharded states) and a fragmented allocator
+# can fail there even though steady-state training fits comfortably.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 MASTER_PORT=${MASTER_PORT:-12351}
 EXPERIMENT=${EXPERIMENT:-"tianjin_multi_control_small"}
 WANDB_MODE=${WANDB_MODE:-"disabled"}
