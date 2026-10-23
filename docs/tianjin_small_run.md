@@ -72,6 +72,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NUM_GPUS=8 WANDB_MODE=online \
     bash scripts/train_tianjin_small.sh
 ```
 
+**这条命令是全自动的三段流水线**：训练 400 步 → 从训练日志解析 4 个 test loss、自动选最低的那个检查点 → 自动用它对 053/077 推理。全部结束后终端会打印选中的检查点路径和生成视频目录（`<run目录>/inference_iter_000000XXX/`）。不想要自动推理就加 `AUTO_INFER=0`；推理场景可用 `INFER_SCENES="053 077"` 覆盖。
+
 新 run 输出到 `/mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/tianjin_small/2b_tianjin_small_<新时间戳>/`。
 
 开训后前几分钟核对日志：
@@ -121,7 +123,7 @@ cat <run目录>/checkpoints/latest_checkpoint.txt
 | 检查点 | 每 100 步（4 个）;test loss 每 100 步（与检查点对齐,053+077）;EMA 采样每 200 步 |
 | 环境加固 | DataLoader 2 常驻 worker;`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` |
 
-## 6. 推理（完整指令,可直接粘贴）
+## 6. 推理（手动方式；训练脚本已自动做过一次,本节用于换检查点重推等场景）
 
 下面的命令中只有两处需要按你的 run 替换（其余原样照抄）:
 
