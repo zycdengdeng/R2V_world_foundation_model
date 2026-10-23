@@ -82,6 +82,24 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NUM_GPUS=8 WANDB_MODE=online \
 4. `Found ~30 samples`
 5. DeviceMonitor 的 `cpu_mem_gb` 全程平稳（若线性增长,见 README 事故记录）
 
+### 训练完成后:定位你的 run 和检查点
+
+每次启动训练都会按启动时刻生成一个**新的时间戳目录**,互不覆盖:
+
+```bash
+# 列出所有 run,最新的时间戳就是你这次的
+ls /mnt/zihanw/Output_R2V_world_foundation_model_v1/cosmos_transfer_custom/tianjin_small/
+
+# 查看某个 run 存了哪些检查点,以及最新的一个
+ls <run目录>/checkpoints/
+cat <run目录>/checkpoints/latest_checkpoint.txt
+```
+
+**选哪个检查点**:打开该 run 的 wandb 页面（启动日志里有链接）,看 `test_loss/loss` 曲线的 4 个点（iter 100/200/300/400）,取最低点对应的 `iter_000000XXX`。曲线一路下降就取 400;中途见底回升（小数据过拟合的典型形态）就取最低的那个。
+
+**中途崩溃想续训**（而不是重头跑）:改配置文件 `tianjin_small_experiment.py` 的 checkpoint 段——
+`load_path` 指向崩溃前最后一个检查点目录（如 `.../checkpoints/iter_000000200`）、`load_training_state=True`,再正常启动;训完记得改回去（`load_path=TRANSFER2_MULTIVIEW_CHECKPOINT.path`、`load_training_state=False`）,否则下一次"全新训练"会错误地续上旧状态。
+
 ## 5. 超参数
 
 ### 模型与控制（与全量/东风配方一致）
@@ -106,7 +124,14 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 NUM_GPUS=8 WANDB_MODE=online \
 
 ## 6. 推理（完整指令,可直接粘贴）
 
-**第一步:选检查点。** 看 wandb 上 `test_loss/loss` 的 4 个点（iter 100/200/300/400）,取最低的。下面以 **iter 300** 为例,换检查点只改 `--ckpt_path` 的最后一段和输出目录名:
+下面的命令中只有两处需要按你的 run 替换（其余原样照抄）:
+
+| 占位 | 替换为 | 示例中的值 |
+|---|---|---|
+| `--ckpt_path` | 你的 run 目录 + 选中的检查点（见第 4 节"训练完成后"） | `2b_tianjin_small_20261022_110117/checkpoints/iter_000000300` |
+| `--output_dir` | 自定的输出目录,建议带上 iter 号避免不同检查点互相覆盖 | `inference_iter300` |
+
+示例（原作者的 run,iter 300）:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 WORLD_SIZE=8 \
