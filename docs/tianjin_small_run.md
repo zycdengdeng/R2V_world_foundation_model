@@ -7,8 +7,7 @@
 
 ```bash
 # 登录 a100 后，进入（或新建）tmux 会话——长任务一律在 tmux 里跑
-tmux attach -t small        # 会话已存在时
-# tmux new -s small         # 不存在时新建；挂后台: Ctrl+B 然后按 D
+tmux attach -t small
 
 cd /mnt/zihanw/R2V_world_foundation_model_v1
 git pull                    # 确认在分支 claude/review-and-continue-bpISK 上
